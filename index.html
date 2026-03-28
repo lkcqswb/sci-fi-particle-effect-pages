@@ -3,11 +3,23 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sci-Fi Celestial Sakura</title>
+<title>Sci-Fi Pink Sakura Bloom</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { background: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; }
-  canvas { display: block; width: 100vw; height: 100vh; filter: contrast(1.1) brightness(1.1); }
+  body { 
+    background: #0a080c; /* 深紫黑色背景，增加深度感 */
+    overflow: hidden; 
+    display: flex; 
+    justify-content: center; 
+    align-items: center; 
+  }
+  canvas { 
+    display: block; 
+    width: 100vw; 
+    height: 100vh; 
+    /* 增加对比度和亮度提升辉光感 */
+    filter: contrast(1.1) brightness(1.2) saturate(1.2); 
+  }
 </style>
 </head>
 <body>
@@ -25,16 +37,23 @@
   }
   
   const branches = [];
-  const particles = [];
-  const branchEndpoints = [];
+  const sakuraParticles = [];
+  const fallingPetals = [];
+  const bloomPoints = []; // 存储树枝上用于生成樱花的点
   
   const config = {
-    maxDepth: 12,
-    trunkWidth: 16,
-    branchColor: 'rgba(210, 215, 225, 0.4)', // 灰白色
-    glowColor: 'rgba(100, 150, 255, 0.1)',
-    particleCount: 4500,
-    lightningJaggedness: 0.6
+    maxDepth: 11,
+    trunkWidth: 14,
+    branchColor: 'rgba(230, 235, 245, 0.45)', // 灰白色树干
+    sakuraColors: [
+      { r: 255, g: 183, b: 197 }, // 浅粉
+      { r: 255, g: 105, b: 180 }, // 深粉 (HotPink)
+      { r: 255, g: 192, b: 203 }, // 樱粉
+      { r: 255, g: 220, b: 230 }  // 极浅粉
+    ],
+    sakuraCount: 5000,
+    fallingPetalCount: 200,
+    lightningJaggedness: 0.5
   };
 
   class Branch {
@@ -46,16 +65,13 @@
       this.depth = depth;
       this.width = width;
       
-      // 生成更细碎、蜿蜒的曲折路径（雷电感）
       this.segments = [];
       let cx = x1;
       let cy = y1;
-      // 深度越深，段数越多，越显破碎
-      const segmentCount = Math.max(3, Math.floor(8 - depth / 2));
+      const segmentCount = Math.max(3, Math.floor(7 - depth / 2));
       const segLen = length / segmentCount;
       
       for (let i = 0; i < segmentCount; i++) {
-        // 增加随机偏移量模拟曲折
         const offset = (Math.random() - 0.5) * config.lightningJaggedness;
         const nextAngle = angle + offset;
         const nx = cx + Math.cos(nextAngle) * segLen;
@@ -63,15 +79,19 @@
         this.segments.push({ x1: cx, y1: cy, x2: nx, y2: ny });
         cx = nx;
         cy = ny;
-        // 每一段都微调角度，产生连贯的弯曲
-        angle += (Math.random() - 0.5) * 0.2;
+        angle += (Math.random() - 0.5) * 0.15;
+
+        // 在中段和末梢记录位置，用于挂载樱花团
+        if (depth >= 4 && Math.random() < 0.3) {
+           bloomPoints.push({ x: cx, y: cy, depth: depth });
+        }
       }
       this.x2 = cx;
       this.y2 = cy;
-
-      // 记录末梢位置用于生成粒子
-      if (depth >= config.maxDepth - 4) {
-        branchEndpoints.push({ x: this.x2, y: this.y2, depth: this.depth });
+      
+      // 树枝末端必加樱花点
+      if (depth >= 5) {
+        bloomPoints.push({ x: this.x2, y: this.y2, depth: depth });
       }
     }
 
@@ -86,10 +106,9 @@
       });
       ctx.stroke();
 
-      // 给主要树干增加一层极细的高亮核心，增加质感
-      if (this.depth < 4) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-        ctx.lineWidth = this.width * 0.3;
+      if (this.depth < 3) {
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = this.width * 0.25;
         ctx.stroke();
       }
     }
@@ -101,108 +120,151 @@
     const branch = new Branch(x, y, angle, length, depth, width);
     branches.push(branch);
 
-    const numBranches = (depth < 2) ? 2 : (Math.random() < 0.7 ? 2 : 3);
+    const numBranches = (depth < 1) ? 2 : (Math.random() < 0.75 ? 2 : 3);
     for (let i = 0; i < numBranches; i++) {
-      // 树枝分叉角度随深度变化，末梢更散开
-      const angleSpread = 0.4 + (depth / config.maxDepth) * 0.8;
+      const angleSpread = 0.5 + (depth / config.maxDepth) * 0.7;
       const newAngle = angle + (Math.random() - 0.5) * angleSpread;
-      const newLength = length * (0.75 + Math.random() * 0.15);
-      const newWidth = width * 0.65;
+      const newLength = length * (0.7 + Math.random() * 0.2);
+      const newWidth = width * 0.62;
       
-      // 随机提前终止某些细小分支
-      if (depth > 5 && Math.random() < 0.05) continue;
+      if (depth > 6 && Math.random() < 0.1) continue;
       
       createTree(branch.x2, branch.y2, newAngle, newLength, depth + 1, newWidth);
     }
   }
 
-  class Particle {
+  // 树上的樱花粒子
+  class SakuraParticle {
     constructor() {
       this.init();
     }
 
     init() {
-      // 随机选择一个树枝末端
-      const ep = branchEndpoints[Math.floor(Math.random() * branchEndpoints.length)];
-      
-      // 粒子分布在末梢周围，形成云团感
-      const spread = (ep.depth / config.maxDepth) * 120 + 30;
+      const bp = bloomPoints[Math.floor(Math.random() * bloomPoints.length)];
+      // 樱花在树枝周围形成簇状
+      const spread = (bp.depth / config.maxDepth) * 80 + 20;
       const angle = Math.random() * Math.PI * 2;
-      // 使用指数分布让中心稍微密集一点，但整体向外围扩散
-      const dist = Math.pow(Math.random(), 0.7) * spread;
+      const dist = Math.pow(Math.random(), 0.6) * spread;
       
-      this.baseX = ep.x + Math.cos(angle) * dist;
-      this.baseY = ep.y + Math.sin(angle) * dist;
+      this.baseX = bp.x + Math.cos(angle) * dist;
+      this.baseY = bp.y + Math.sin(angle) * dist;
       this.x = this.baseX;
       this.y = this.baseY;
-      this.z = Math.random() * 2 - 1; // 模拟深度感
       
-      this.size = Math.random() * 1.8 + 0.2;
-      this.alpha = Math.random() * 0.8 + 0.1;
+      this.size = Math.random() * 2.2 + 0.4;
+      this.alpha = Math.random() * 0.7 + 0.2;
       
-      // 色彩配比：亮白(50%), 冰蓝(30%), 淡紫(20%)
-      const r = Math.random();
-      if (r < 0.5) {
-        this.color = { r: 255, g: 255, b: 255 }; // 纯白
-      } else if (r < 0.8) {
-        this.color = { r: 180, g: 230, b: 255 }; // 冰蓝
-      } else {
-        this.color = { r: 220, g: 190, b: 255 }; // 淡紫
-      }
+      // 随机选择粉色系
+      this.color = config.sakuraColors[Math.floor(Math.random() * config.sakuraColors.length)];
       
-      this.life = Math.random();
-      this.speed = 0.002 + Math.random() * 0.005;
       this.offset = Math.random() * 100;
     }
 
     update(t) {
-      // 微小的浮动动画
-      const pulse = Math.sin(t * 0.5 + this.offset) * 5;
-      this.x = this.baseX + Math.sin(t + this.offset) * 4;
-      this.y = this.baseY + Math.cos(t * 0.8 + this.offset) * 4;
-      
-      // 呼吸灯效果
-      this.currentAlpha = this.alpha * (0.6 + Math.sin(t + this.offset) * 0.4);
+      // 轻微抖动模拟微风
+      this.x = this.baseX + Math.sin(t * 0.8 + this.offset) * 3;
+      this.y = this.baseY + Math.cos(t * 0.5 + this.offset) * 3;
+      this.currentAlpha = this.alpha * (0.7 + Math.sin(t * 1.2 + this.offset) * 0.3);
     }
 
     draw() {
       const a = this.currentAlpha;
-      ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${a})`;
+      const { r, g, b } = this.color;
       
-      // 绘制粒子
+      // 核心
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
       ctx.beginPath();
       ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
       ctx.fill();
       
-      // 较大的粒子增加光晕，形成 3D 点云的发光感
-      if (this.size > 1.3) {
-        ctx.fillStyle = `rgba(${this.color.r}, ${this.color.g}, ${this.color.b}, ${a * 0.3})`;
+      // 辉光效果
+      if (this.size > 1.2) {
+        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a * 0.4})`;
         ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size * 2.5, 0, Math.PI * 2);
+        ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
         ctx.fill();
       }
     }
   }
 
+  // 飘落的花瓣
+  class FallingPetal {
+    constructor() {
+      this.init(true);
+    }
+
+    init(randomY = false) {
+      this.x = Math.random() * W;
+      this.y = randomY ? Math.random() * H : -20;
+      this.size = Math.random() * 3 + 2;
+      this.speedY = Math.random() * 1 + 0.5;
+      this.speedX = (Math.random() - 0.5) * 1.5;
+      this.rotation = Math.random() * Math.PI * 2;
+      this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+      this.color = config.sakuraColors[Math.floor(Math.random() * config.sakuraColors.length)];
+      this.alpha = Math.random() * 0.6 + 0.3;
+      this.swing = Math.random() * 2;
+      this.swingSpeed = Math.random() * 0.02 + 0.01;
+    }
+
+    update() {
+      this.y += this.speedY;
+      this.x += this.speedX + Math.sin(this.y * this.swingSpeed) * this.swing;
+      this.rotation += this.rotationSpeed;
+      
+      if (this.y > H + 20) {
+        this.init();
+      }
+    }
+
+    draw() {
+      ctx.save();
+      ctx.translate(this.x, this.y);
+      ctx.rotate(this.rotation);
+      ctx.globalAlpha = this.alpha;
+      ctx.fillStyle = `rgb(${this.color.r}, ${this.color.g}, ${this.color.b})`;
+      
+      // 绘制一个简单的花瓣形状（椭圆）
+      ctx.beginPath();
+      ctx.ellipse(0, 0, this.size, this.size * 0.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 增加一点点边缘光泽
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
+      ctx.lineWidth = 0.5;
+      ctx.stroke();
+      
+      ctx.restore();
+    }
+  }
+
   function init() {
     branches.length = 0;
-    particles.length = 0;
-    branchEndpoints.length = 0;
+    sakuraParticles.length = 0;
+    fallingPetals.length = 0;
+    bloomPoints.length = 0;
     
-    // 树干参数：从底部中央生长，高度约为屏幕的 1/4
-    const trunkLen = H * 0.24;
-    createTree(W / 2, H * 0.92, -Math.PI / 2, trunkLen, 0, config.trunkWidth);
+    // 生成树干
+    const trunkLen = H * 0.22;
+    createTree(W / 2, H * 0.9, -Math.PI / 2, trunkLen, 0, config.trunkWidth);
     
-    for (let i = 0; i < config.particleCount; i++) {
-      particles.push(new Particle());
+    // 生成树上的樱花
+    for (let i = 0; i < config.sakuraCount; i++) {
+      sakuraParticles.push(new SakuraParticle());
+    }
+    
+    // 生成落花
+    for (let i = 0; i < config.fallingPetalCount; i++) {
+      fallingPetals.push(new FallingPetal());
     }
   }
 
   function drawBottomLight() {
-    // 底部向上的暖白光投影
-    const grd = ctx.createRadialGradient(W / 2, H, 10, W / 2, H, H * 0.6);
-    grd.addColorStop(0, 'rgba(255, 245, 200, 0.18)'); // 暖白色
-    grd.addColorStop(0.4, 'rgba(255, 245, 220, 0.05)');
+    // 底部向上的暖白光
+    const grd = ctx.createRadialGradient(W / 2, H, 0, W / 2, H, H * 0.7);
+    grd.addColorStop(0, 'rgba(255, 240, 180, 0.25)'); // 更暖的白光
+    grd.addColorStop(0.3, 'rgba(255, 245, 200, 0.1)');
+    grd.addColorStop(0.7, 'rgba(255, 180, 200, 0.03)'); // 混合一点粉色余辉
     grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
     ctx.fillStyle = grd;
     ctx.fillRect(0, 0, W, H);
@@ -212,25 +274,30 @@
   function loop() {
     time += 0.015;
     
-    // 纯黑背景清理
-    ctx.fillStyle = '#000';
+    // 背景
+    ctx.fillStyle = '#0a080c';
     ctx.fillRect(0, 0, W, H);
 
-    // 绘制环境光
     drawBottomLight();
 
-    // 绘制树干（先绘制树干）
-    ctx.globalAlpha = 0.8;
+    // 绘制树干
+    ctx.globalAlpha = 0.9;
     branches.forEach(b => b.draw());
     ctx.globalAlpha = 1.0;
 
-    // 绘制粒子（使用 lighter 混合模式增加发光科幻感）
-    ctx.globalCompositeOperation = 'lighter';
-    particles.forEach(p => {
+    // 绘制树上的粉色樱花团
+    ctx.globalCompositeOperation = 'lighter'; // 使其发光融合
+    sakuraParticles.forEach(p => {
       p.update(time);
       p.draw();
     });
+    
+    // 绘制飘落的花瓣
     ctx.globalCompositeOperation = 'source-over';
+    fallingPetals.forEach(p => {
+      p.update();
+      p.draw();
+    });
 
     requestAnimationFrame(loop);
   }
@@ -239,7 +306,7 @@
   resize();
   loop();
 
-  // 点击刷新
+  // 点击重新生成
   window.addEventListener('mousedown', () => {
     init();
   });
