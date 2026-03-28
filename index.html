@@ -1,316 +1,381 @@
 <!DOCTYPE html>
-<html lang="zh">
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sci-Fi Pink Sakura Bloom</title>
-<style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { 
-    background: #0a080c; /* 深紫黑色背景，增加深度感 */
-    overflow: hidden; 
-    display: flex; 
-    justify-content: center; 
-    align-items: center; 
-  }
-  canvas { 
-    display: block; 
-    width: 100vw; 
-    height: 100vh; 
-    /* 增加对比度和亮度提升辉光感 */
-    filter: contrast(1.1) brightness(1.2) saturate(1.2); 
-  }
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sci-Fi Sakura - Eternal Bloom</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #050005;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        #canvas-container {
+            width: 100vw;
+            height: 100vh;
+        }
+        .ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            color: rgba(255, 105, 180, 0.8);
+            pointer-events: none;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-size: 12px;
+        }
+    </style>
 </head>
 <body>
-<canvas id="c"></canvas>
-<script>
-(function() {
-  const cv = document.getElementById('c');
-  const ctx = cv.getContext('2d', { alpha: false });
-  let W, H;
+    <div id="canvas-container"></div>
+    <div class="ui-overlay">
+        System: Sakura Particle Engine v2.0<br>
+        Status: Hyper-Bloom Active<br>
+        Particles: ~350,000
+    </div>
 
-  function resize() {
-    W = cv.width = window.innerWidth;
-    H = cv.height = window.innerHeight;
-    init();
-  }
-  
-  const branches = [];
-  const sakuraParticles = [];
-  const fallingPetals = [];
-  const bloomPoints = []; // 存储树枝上用于生成樱花的点
-  
-  const config = {
-    maxDepth: 11,
-    trunkWidth: 14,
-    branchColor: 'rgba(230, 235, 245, 0.45)', // 灰白色树干
-    sakuraColors: [
-      { r: 255, g: 183, b: 197 }, // 浅粉
-      { r: 255, g: 105, b: 180 }, // 深粉 (HotPink)
-      { r: 255, g: 192, b: 203 }, // 樱粉
-      { r: 255, g: 220, b: 230 }  // 极浅粉
-    ],
-    sakuraCount: 5000,
-    fallingPetalCount: 200,
-    lightningJaggedness: 0.5
-  };
-
-  class Branch {
-    constructor(x1, y1, angle, length, depth, width) {
-      this.x1 = x1;
-      this.y1 = y1;
-      this.angle = angle;
-      this.length = length;
-      this.depth = depth;
-      this.width = width;
-      
-      this.segments = [];
-      let cx = x1;
-      let cy = y1;
-      const segmentCount = Math.max(3, Math.floor(7 - depth / 2));
-      const segLen = length / segmentCount;
-      
-      for (let i = 0; i < segmentCount; i++) {
-        const offset = (Math.random() - 0.5) * config.lightningJaggedness;
-        const nextAngle = angle + offset;
-        const nx = cx + Math.cos(nextAngle) * segLen;
-        const ny = cy + Math.sin(nextAngle) * segLen;
-        this.segments.push({ x1: cx, y1: cy, x2: nx, y2: ny });
-        cx = nx;
-        cy = ny;
-        angle += (Math.random() - 0.5) * 0.15;
-
-        // 在中段和末梢记录位置，用于挂载樱花团
-        if (depth >= 4 && Math.random() < 0.3) {
-           bloomPoints.push({ x: cx, y: cy, depth: depth });
+    <!-- Import Three.js and components via CDN -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+            }
         }
-      }
-      this.x2 = cx;
-      this.y2 = cy;
-      
-      // 树枝末端必加樱花点
-      if (depth >= 5) {
-        bloomPoints.push({ x: this.x2, y: this.y2, depth: depth });
-      }
-    }
+    </script>
 
-    draw() {
-      ctx.strokeStyle = config.branchColor;
-      ctx.lineWidth = this.width;
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      this.segments.forEach(seg => {
-        ctx.moveTo(seg.x1, seg.y1);
-        ctx.lineTo(seg.x2, seg.y2);
-      });
-      ctx.stroke();
+    <script type="module">
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+        import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
-      if (this.depth < 3) {
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-        ctx.lineWidth = this.width * 0.25;
-        ctx.stroke();
-      }
-    }
-  }
+        // --- Configuration ---
+        const CANOPY_PARTICLES = 300000;
+        const PETAL_PARTICLES = 5000;
+        const TRUNK_PARTICLES = 50000;
+        
+        const COLORS = {
+            hotPink: new THREE.Color(0xff1493),
+            lightPink: new THREE.Color(0xff69b4),
+            gold: new THREE.Color(0xffd700),
+            white: new THREE.Color(0xffffff),
+            deepRed: new THREE.Color(0x330005)
+        };
 
-  function createTree(x, y, angle, length, depth, width) {
-    if (depth > config.maxDepth) return;
-    
-    const branch = new Branch(x, y, angle, length, depth, width);
-    branches.push(branch);
+        // --- Shaders ---
+        const particleVertexShader = `
+            attribute float size;
+            attribute vec3 customColor;
+            attribute float opacity;
+            varying vec3 vColor;
+            varying float vOpacity;
+            
+            void main() {
+                vColor = customColor;
+                vOpacity = opacity;
+                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+                gl_PointSize = size * (300.0 / -mvPosition.z);
+                gl_Position = projectionMatrix * mvPosition;
+            }
+        `;
 
-    const numBranches = (depth < 1) ? 2 : (Math.random() < 0.75 ? 2 : 3);
-    for (let i = 0; i < numBranches; i++) {
-      const angleSpread = 0.5 + (depth / config.maxDepth) * 0.7;
-      const newAngle = angle + (Math.random() - 0.5) * angleSpread;
-      const newLength = length * (0.7 + Math.random() * 0.2);
-      const newWidth = width * 0.62;
-      
-      if (depth > 6 && Math.random() < 0.1) continue;
-      
-      createTree(branch.x2, branch.y2, newAngle, newLength, depth + 1, newWidth);
-    }
-  }
+        const particleFragmentShader = `
+            varying vec3 vColor;
+            varying float vOpacity;
+            
+            void main() {
+                // Circular soft particle
+                float dist = distance(gl_PointCoord, vec2(0.5, 0.5));
+                if (dist > 0.5) discard;
+                
+                float strength = 1.0 - (dist * 2.0);
+                strength = pow(strength, 2.0);
+                
+                gl_FragColor = vec4(vColor, vOpacity * strength);
+            }
+        `;
 
-  // 树上的樱花粒子
-  class SakuraParticle {
-    constructor() {
-      this.init();
-    }
+        // --- Initialization ---
+        let scene, camera, renderer, composer, controls;
+        let canopyPoints, petalPoints, trunkPoints;
+        const clock = new THREE.Clock();
 
-    init() {
-      const bp = bloomPoints[Math.floor(Math.random() * bloomPoints.length)];
-      // 樱花在树枝周围形成簇状
-      const spread = (bp.depth / config.maxDepth) * 80 + 20;
-      const angle = Math.random() * Math.PI * 2;
-      const dist = Math.pow(Math.random(), 0.6) * spread;
-      
-      this.baseX = bp.x + Math.cos(angle) * dist;
-      this.baseY = bp.y + Math.sin(angle) * dist;
-      this.x = this.baseX;
-      this.y = this.baseY;
-      
-      this.size = Math.random() * 2.2 + 0.4;
-      this.alpha = Math.random() * 0.7 + 0.2;
-      
-      // 随机选择粉色系
-      this.color = config.sakuraColors[Math.floor(Math.random() * config.sakuraColors.length)];
-      
-      this.offset = Math.random() * 100;
-    }
+        init();
+        animate();
 
-    update(t) {
-      // 轻微抖动模拟微风
-      this.x = this.baseX + Math.sin(t * 0.8 + this.offset) * 3;
-      this.y = this.baseY + Math.cos(t * 0.5 + this.offset) * 3;
-      this.currentAlpha = this.alpha * (0.7 + Math.sin(t * 1.2 + this.offset) * 0.3);
-    }
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x050005);
+            scene.fog = new THREE.FogExp2(0x050005, 0.002);
 
-    draw() {
-      const a = this.currentAlpha;
-      const { r, g, b } = this.color;
-      
-      // 核心
-      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a})`;
-      ctx.beginPath();
-      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // 辉光效果
-      if (this.size > 1.2) {
-        ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${a * 0.4})`;
-        ctx.beginPath();
-        ctx.arc(this.x, this.y, this.size * 3, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-  }
+            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
+            camera.position.set(0, 150, 500);
 
-  // 飘落的花瓣
-  class FallingPetal {
-    constructor() {
-      this.init(true);
-    }
+            renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-    init(randomY = false) {
-      this.x = Math.random() * W;
-      this.y = randomY ? Math.random() * H : -20;
-      this.size = Math.random() * 3 + 2;
-      this.speedY = Math.random() * 1 + 0.5;
-      this.speedX = (Math.random() - 0.5) * 1.5;
-      this.rotation = Math.random() * Math.PI * 2;
-      this.rotationSpeed = (Math.random() - 0.5) * 0.1;
-      this.color = config.sakuraColors[Math.floor(Math.random() * config.sakuraColors.length)];
-      this.alpha = Math.random() * 0.6 + 0.3;
-      this.swing = Math.random() * 2;
-      this.swingSpeed = Math.random() * 0.02 + 0.01;
-    }
+            // Controls
+            controls = new OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            controls.autoRotate = true;
+            controls.autoRotateSpeed = 0.5;
+            controls.maxDistance = 1000;
+            controls.minDistance = 100;
 
-    update() {
-      this.y += this.speedY;
-      this.x += this.speedX + Math.sin(this.y * this.swingSpeed) * this.swing;
-      this.rotation += this.rotationSpeed;
-      
-      if (this.y > H + 20) {
-        this.init();
-      }
-    }
+            // --- Post Processing (Bloom) ---
+            const renderScene = new RenderPass(scene, camera);
+            const bloomPass = new UnrealBloomPass(
+                new THREE.Vector2(window.innerWidth, window.innerHeight), 
+                2.5, // strength
+                0.4, // radius
+                0.1  // threshold
+            );
+            
+            composer = new EffectComposer(renderer);
+            composer.addPass(renderScene);
+            composer.addPass(bloomPass);
 
-    draw() {
-      ctx.save();
-      ctx.translate(this.x, this.y);
-      ctx.rotate(this.rotation);
-      ctx.globalAlpha = this.alpha;
-      ctx.fillStyle = `rgb(${this.color.r}, ${this.color.g}, ${this.color.b})`;
-      
-      // 绘制一个简单的花瓣形状（椭圆）
-      ctx.beginPath();
-      ctx.ellipse(0, 0, this.size, this.size * 0.6, 0, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // 增加一点点边缘光泽
-      ctx.strokeStyle = 'rgba(255, 255, 255, 0.3)';
-      ctx.lineWidth = 0.5;
-      ctx.stroke();
-      
-      ctx.restore();
-    }
-  }
+            // --- Create Tree Canopy ---
+            createCanopy();
+            
+            // --- Create Trunk ---
+            createTrunk();
 
-  function init() {
-    branches.length = 0;
-    sakuraParticles.length = 0;
-    fallingPetals.length = 0;
-    bloomPoints.length = 0;
-    
-    // 生成树干
-    const trunkLen = H * 0.22;
-    createTree(W / 2, H * 0.9, -Math.PI / 2, trunkLen, 0, config.trunkWidth);
-    
-    // 生成树上的樱花
-    for (let i = 0; i < config.sakuraCount; i++) {
-      sakuraParticles.push(new SakuraParticle());
-    }
-    
-    // 生成落花
-    for (let i = 0; i < config.fallingPetalCount; i++) {
-      fallingPetals.push(new FallingPetal());
-    }
-  }
+            // --- Create Falling Petals ---
+            createPetals();
 
-  function drawBottomLight() {
-    // 底部向上的暖白光
-    const grd = ctx.createRadialGradient(W / 2, H, 0, W / 2, H, H * 0.7);
-    grd.addColorStop(0, 'rgba(255, 240, 180, 0.25)'); // 更暖的白光
-    grd.addColorStop(0.3, 'rgba(255, 245, 200, 0.1)');
-    grd.addColorStop(0.7, 'rgba(255, 180, 200, 0.03)'); // 混合一点粉色余辉
-    grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
-    ctx.fillStyle = grd;
-    ctx.fillRect(0, 0, W, H);
-  }
+            // --- Bottom Light Source ---
+            const bottomLight = new THREE.PointLight(0xffaa00, 10, 800);
+            bottomLight.position.set(0, -50, 0);
+            scene.add(bottomLight);
 
-  let time = 0;
-  function loop() {
-    time += 0.015;
-    
-    // 背景
-    ctx.fillStyle = '#0a080c';
-    ctx.fillRect(0, 0, W, H);
+            const bottomGlow = new THREE.Mesh(
+                new THREE.PlaneGeometry(1000, 1000),
+                new THREE.MeshBasicMaterial({ 
+                    color: 0x330005, 
+                    transparent: true, 
+                    opacity: 0.5, 
+                    side: THREE.DoubleSide 
+                })
+            );
+            bottomGlow.rotation.x = Math.PI / 2;
+            bottomGlow.position.y = -50;
+            scene.add(bottomGlow);
 
-    drawBottomLight();
+            window.addEventListener('resize', onWindowResize);
+        }
 
-    // 绘制树干
-    ctx.globalAlpha = 0.9;
-    branches.forEach(b => b.draw());
-    ctx.globalAlpha = 1.0;
+        function createCanopy() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(CANOPY_PARTICLES * 3);
+            const colors = new Float32Array(CANOPY_PARTICLES * 3);
+            const sizes = new Float32Array(CANOPY_PARTICLES);
+            const opacities = new Float32Array(CANOPY_PARTICLES);
 
-    // 绘制树上的粉色樱花团
-    ctx.globalCompositeOperation = 'lighter'; // 使其发光融合
-    sakuraParticles.forEach(p => {
-      p.update(time);
-      p.draw();
-    });
-    
-    // 绘制飘落的花瓣
-    ctx.globalCompositeOperation = 'source-over';
-    fallingPetals.forEach(p => {
-      p.update();
-      p.draw();
-    });
+            for (let i = 0; i < CANOPY_PARTICLES; i++) {
+                // Distribute particles in a cloud-like structure
+                // Main mass
+                const r = 150 + Math.random() * 50;
+                const theta = Math.random() * Math.PI * 2;
+                const phi = Math.random() * Math.PI * 0.7; // Focused on top half
 
-    requestAnimationFrame(loop);
-  }
+                // Cluster factor
+                const clusterX = Math.pow(Math.random(), 2) * (Math.random() > 0.5 ? 1 : -1) * 60;
+                const clusterY = Math.pow(Math.random(), 2) * (Math.random() > 0.5 ? 1 : -1) * 40;
+                const clusterZ = Math.pow(Math.random(), 2) * (Math.random() > 0.5 ? 1 : -1) * 60;
 
-  window.addEventListener('resize', resize);
-  resize();
-  loop();
+                const x = r * Math.sin(phi) * Math.cos(theta) + clusterX;
+                const y = r * Math.cos(phi) + 150 + clusterY;
+                const z = r * Math.sin(phi) * Math.sin(theta) + clusterZ;
 
-  // 点击重新生成
-  window.addEventListener('mousedown', () => {
-    init();
-  });
-})();
-</script>
+                positions[i * 3] = x;
+                positions[i * 3 + 1] = y;
+                positions[i * 3 + 2] = z;
+
+                // Color mapping: Pink to Gold/White
+                let color;
+                const rand = Math.random();
+                if (rand > 0.95) {
+                    color = COLORS.white;
+                } else if (rand > 0.8) {
+                    color = COLORS.gold;
+                } else if (rand > 0.4) {
+                    color = COLORS.hotPink;
+                } else {
+                    color = COLORS.lightPink;
+                }
+
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+
+                sizes[i] = 1.0 + Math.random() * 3.0;
+                opacities[i] = 0.2 + Math.random() * 0.8;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+
+            const material = new THREE.ShaderMaterial({
+                uniforms: {
+                    time: { value: 0 }
+                },
+                vertexShader: particleVertexShader,
+                fragmentShader: particleFragmentShader,
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true
+            });
+
+            canopyPoints = new THREE.Points(geometry, material);
+            scene.add(canopyPoints);
+        }
+
+        function createTrunk() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(TRUNK_PARTICLES * 3);
+            const colors = new Float32Array(TRUNK_PARTICLES * 3);
+            const sizes = new Float32Array(TRUNK_PARTICLES);
+            const opacities = new Float32Array(TRUNK_PARTICLES);
+
+            for (let i = 0; i < TRUNK_PARTICLES; i++) {
+                const h = Math.random() * 200 - 50;
+                const radius = (200 - h) * 0.15 * Math.random();
+                const angle = Math.random() * Math.PI * 2;
+
+                positions[i * 3] = Math.cos(angle) * radius;
+                positions[i * 3 + 1] = h;
+                positions[i * 3 + 2] = Math.sin(angle) * radius;
+
+                colors[i * 3] = 0.2; // Dark Trunk
+                colors[i * 3 + 1] = 0.05;
+                colors[i * 3 + 2] = 0.1;
+
+                sizes[i] = 1.0 + Math.random() * 2.0;
+                opacities[i] = 0.4 + Math.random() * 0.6;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+
+            const material = new THREE.ShaderMaterial({
+                vertexShader: particleVertexShader,
+                fragmentShader: particleFragmentShader,
+                blending: THREE.AdditiveBlending,
+                depthTest: true,
+                transparent: true
+            });
+
+            trunkPoints = new THREE.Points(geometry, material);
+            scene.add(trunkPoints);
+        }
+
+        function createPetals() {
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(PETAL_PARTICLES * 3);
+            const colors = new Float32Array(PETAL_PARTICLES * 3);
+            const sizes = new Float32Array(PETAL_PARTICLES);
+            const opacities = new Float32Array(PETAL_PARTICLES);
+            
+            // Custom velocities for petals
+            const velocities = new Float32Array(PETAL_PARTICLES * 3);
+
+            for (let i = 0; i < PETAL_PARTICLES; i++) {
+                positions[i * 3] = (Math.random() - 0.5) * 600;
+                positions[i * 3 + 1] = Math.random() * 400;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 600;
+
+                const color = Math.random() > 0.5 ? COLORS.hotPink : COLORS.gold;
+                colors[i * 3] = color.r;
+                colors[i * 3 + 1] = color.g;
+                colors[i * 3 + 2] = color.b;
+
+                sizes[i] = 4.0 + Math.random() * 6.0;
+                opacities[i] = 0.6 + Math.random() * 0.4;
+
+                velocities[i * 3] = (Math.random() - 0.5) * 0.5;
+                velocities[i * 3 + 1] = -0.5 - Math.random() * 1.0;
+                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.5;
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
+            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
+            geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+            geometry.userData.velocities = velocities;
+
+            const material = new THREE.ShaderMaterial({
+                vertexShader: particleVertexShader,
+                fragmentShader: particleFragmentShader,
+                blending: THREE.AdditiveBlending,
+                depthTest: false,
+                transparent: true
+            });
+
+            petalPoints = new THREE.Points(geometry, material);
+            scene.add(petalPoints);
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            composer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            const elapsed = clock.getElapsedTime();
+
+            controls.update();
+
+            // Animate Canopy (subtle breathing/wind)
+            if (canopyPoints) {
+                const positions = canopyPoints.geometry.attributes.position.array;
+                for (let i = 0; i < CANOPY_PARTICLES; i++) {
+                    const idx = i * 3;
+                    // Gentle sway
+                    positions[idx] += Math.sin(elapsed * 0.5 + positions[idx+1] * 0.01) * 0.05;
+                    positions[idx+2] += Math.cos(elapsed * 0.5 + positions[idx+1] * 0.01) * 0.05;
+                }
+                canopyPoints.geometry.attributes.position.needsUpdate = true;
+            }
+
+            // Animate Petals
+            if (petalPoints) {
+                const pos = petalPoints.geometry.attributes.position.array;
+                const vel = petalPoints.geometry.userData.velocities;
+                for (let i = 0; i < PETAL_PARTICLES; i++) {
+                    const idx = i * 3;
+                    pos[idx] += vel[idx] + Math.sin(elapsed + i) * 0.2;
+                    pos[idx+1] += vel[idx+1];
+                    pos[idx+2] += vel[idx+2] + Math.cos(elapsed + i) * 0.2;
+
+                    // Reset petals that fall below ground
+                    if (pos[idx+1] < -50) {
+                        pos[idx] = (Math.random() - 0.5) * 400;
+                        pos[idx+1] = 300 + Math.random() * 100;
+                        pos[idx+2] = (Math.random() - 0.5) * 400;
+                    }
+                }
+                petalPoints.geometry.attributes.position.needsUpdate = true;
+            }
+
+            composer.render();
+        }
+    </script>
 </body>
 </html>
