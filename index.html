@@ -111,136 +111,131 @@
             const positions = [], colors = [], sizes = [], opacities = [];
             const tempColor = new THREE.Color();
 
-            function createBranch(start, dir, length, radius, depth, type = 'normal') {
-                const end = start.clone().add(dir.clone().multiplyScalar(length));
+            // --- 1. Branch Generation Logic ---
+            function createBranch(start, dir, length, radius, depth) {
+                // Apply length randomness (±10%)
+                const actualLength = length * (0.9 + Math.random() * 0.2);
+                const end = start.clone().add(dir.clone().multiplyScalar(actualLength));
                 
-                // 1. Draw Branch Particles
-                const segmentCount = Math.max(3, Math.floor(length / 5));
+                // Draw Branch Particles
+                const segmentCount = Math.max(2, Math.floor(actualLength / 6));
                 for (let i = 0; i <= segmentCount; i++) {
                     const t = i / segmentCount;
                     const p = start.clone().lerp(end, t);
-                    const currentRad = radius * (1 - t * 0.3);
+                    const currentRad = radius * (1 - t * 0.4);
                     
-                    p.x += (Math.random() - 0.5) * currentRad * 0.3;
-                    p.y += (Math.random() - 0.5) * currentRad * 0.3;
-                    p.z += (Math.random() - 0.5) * currentRad * 0.3;
+                    // Add slight jitter for organic look
+                    p.x += (Math.random() - 0.5) * currentRad * 0.4;
+                    p.y += (Math.random() - 0.5) * currentRad * 0.4;
+                    p.z += (Math.random() - 0.5) * currentRad * 0.4;
 
                     positions.push(p.x, p.y, p.z);
                     
+                    // Dynamic coloring: trunk -> branch -> bloom
                     if (depth > 2) tempColor.copy(COLORS.trunk).lerp(COLORS.branch, (6-depth)/4);
                     else tempColor.copy(COLORS.branch).lerp(COLORS.bloom, (2-depth)/2);
                     
                     colors.push(tempColor.r, tempColor.g, tempColor.b);
-                    sizes.push(currentRad * 1.8);
-                    opacities.push(depth > 3 ? 0.9 : 0.6);
+                    sizes.push(currentRad * 2.0);
+                    opacities.push(depth > 2 ? 0.9 : 0.7);
                 }
 
-                // 2. Add Blossom Clusters
+                // Add Blossom Clusters on smaller branches
                 if (depth < 4) {
-                    const bloomCount = (5 - depth) * 50;
-                    const spread = (5 - depth) * 20;
+                    const bloomCount = Math.floor((4 - depth) * 40);
+                    const spread = (4 - depth) * 15;
                     for (let i = 0; i < bloomCount; i++) {
                         const offset = new THREE.Vector3(
                             (Math.random() - 0.5) * spread * 2.5,
-                            (Math.random() - 0.5) * spread * 1.2,
+                            (Math.random() - 0.5) * spread * 1.5,
                             (Math.random() - 0.5) * spread * 2.5
                         );
                         const bp = end.clone().add(offset);
                         positions.push(bp.x, bp.y, bp.z);
                         
                         const rand = Math.random();
-                        if (rand > 0.8) tempColor.copy(COLORS.white);
+                        if (rand > 0.85) tempColor.copy(COLORS.white);
                         else if (rand > 0.4) tempColor.copy(COLORS.highlight);
                         else tempColor.copy(COLORS.bloom);
                         
                         colors.push(tempColor.r, tempColor.g, tempColor.b);
-                        sizes.push(2 + Math.random() * 6);
-                        opacities.push(0.15 + Math.random() * 0.25);
+                        sizes.push(1.5 + Math.random() * 5);
+                        opacities.push(0.2 + Math.random() * 0.3);
                     }
                 }
 
                 if (depth <= 0) return;
 
-                // 3. Recursive Branching
-                let numBranches = 2;
-                let spreadAngle = Math.PI * 0.25;
-                let nextLenMult = 0.75;
-
-                if (type === 'bottom') {
-                    numBranches = 3;
-                    spreadAngle = Math.PI * 0.12; // Keep it horizontal
-                    nextLenMult = 0.72;
-                } else if (type === 'mid') {
-                    numBranches = 2;
-                    spreadAngle = Math.PI * 0.18;
-                    nextLenMult = 0.7;
-                }
-
-                for (let i = 0; i < numBranches; i++) {
-                    const newDir = dir.clone();
-                    const angleY = (i / numBranches) * Math.PI * 2 + (Math.random() * 0.5);
+                // Recursive secondary branching
+                const numSubBranches = depth > 2 ? 2 : 1;
+                for (let i = 0; i < numSubBranches; i++) {
+                    const nextDir = dir.clone();
+                    // Apply random rotation for sub-branches
+                    const angleY = Math.random() * Math.PI * 2;
                     const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
+                    const spread = 0.3 + Math.random() * 0.3;
+                    nextDir.applyAxisAngle(axis, spread);
                     
-                    newDir.applyAxisAngle(axis, spreadAngle * (0.8 + Math.random() * 0.4));
-                    newDir.normalize();
-
-                    createBranch(end, newDir, length * nextLenMult, radius * 0.65, depth - 1, type);
+                    createBranch(end, nextDir, actualLength * 0.65, radius * 0.6, depth - 1);
                 }
             }
 
-            // Trunk: Short and thick (only 25% of visual tree height)
+            // --- 2. Trunk Generation ---
             const trunkHeight = 140;
-            const trunkRadius = 35;
-            for (let i = 0; i < 60; i++) {
-                const t = i / 60;
+            const trunkRadius = 28;
+            for (let i = 0; i < 80; i++) {
+                const t = i / 80;
                 const p = new THREE.Vector3(0, t * trunkHeight, 0);
-                const r = trunkRadius * (1.2 - t * 0.4);
+                const r = trunkRadius * (1.1 - t * 0.5);
                 
-                // Add radial volume to trunk
-                for(let j=0; j<4; j++) {
+                // Add girth
+                const density = 4;
+                for(let j=0; j<density; j++) {
                     const angle = Math.random() * Math.PI * 2;
                     const dist = Math.pow(Math.random(), 0.5) * r;
                     const px = p.x + Math.cos(angle) * dist;
                     const pz = p.z + Math.sin(angle) * dist;
-                    positions.push(px, p.y, p.z);
+                    positions.push(px, p.y, pz);
                     
                     tempColor.copy(COLORS.trunk).lerp(COLORS.branch, t);
-                    if (Math.random() > 0.95) tempColor.copy(COLORS.highlight);
-                    
                     colors.push(tempColor.r, tempColor.g, tempColor.b);
-                    sizes.push(2 + Math.random() * 4);
+                    sizes.push(1.5 + Math.random() * 3.5);
                     opacities.push(0.8 + Math.random() * 0.2);
                 }
             }
 
-            // Layered Branching Strategy
-            // Level 1: Bottom Horizontal Layer (Wide Umbrella Base)
-            const bottomCount = 12;
-            for(let i=0; i<bottomCount; i++) {
-                const angleY = (i/bottomCount) * Math.PI * 2;
-                const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
-                const dir = new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, Math.PI * 0.48); // 86 degrees (almost horizontal)
-                createBranch(new THREE.Vector3(0, trunkHeight * 0.7, 0), dir, trunkHeight * 0.8, 18, 5, 'bottom');
-            }
+            // --- 3. Layered Branching Strategy ---
+            const layers = [
+                { h: 0.65, lenMult: 0.8, angleDeg: 85, count: [8, 10], depth: 5 }, // Bottom
+                { h: 0.75, lenMult: 0.6, angleDeg: 70, count: [6, 8],  depth: 4 }, // Lower-mid
+                { h: 0.85, lenMult: 0.45, angleDeg: 50, count: [5, 6],  depth: 4 }, // Upper-mid
+                { h: 0.92, lenMult: 0.3, angleDeg: 35, count: [5, 6],  depth: 3 }, // Near-top
+                { h: 1.0,  lenMult: 0.2, angleDeg: 20, count: [4, 4],  depth: 3 }  // Top
+            ];
 
-            // Level 2: Middle Layer (Rising structure)
-            const midCount = 8;
-            for(let i=0; i<midCount; i++) {
-                const angleY = (i/midCount) * Math.PI * 2 + 0.4;
-                const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
-                const dir = new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, Math.PI * 0.35); // 63 degrees
-                createBranch(new THREE.Vector3(0, trunkHeight * 0.9, 0), dir, trunkHeight * 0.8, 14, 4, 'mid');
-            }
+            const degToRad = Math.PI / 180;
 
-            // Level 3: Top Layer (Upward crown)
-            const topCount = 6;
-            for(let i=0; i<topCount; i++) {
-                const angleY = (i/topCount) * Math.PI * 2 + 0.8;
-                const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
-                const dir = new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, Math.PI * 0.2); // 36 degrees
-                createBranch(new THREE.Vector3(0, trunkHeight, 0), dir, trunkHeight * 0.8, 10, 4, 'top');
-            }
+            layers.forEach((layer, layerIdx) => {
+                const branchCount = Math.floor(layer.count[0] + Math.random() * (layer.count[1] - layer.count[0] + 1));
+                const startHeight = trunkHeight * layer.h;
+                
+                for(let i=0; i<branchCount; i++) {
+                    // Base angle around trunk (evenly distributed with jitter)
+                    const angleY = (i / branchCount) * Math.PI * 2 + (Math.random() - 0.5) * 0.5;
+                    const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
+                    
+                    // Angle from vertical (convert degree to rad + small random offset)
+                    const angleFromUp = layer.angleDeg * degToRad + (Math.random() - 0.5) * 0.1;
+                    
+                    const dir = new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, angleFromUp);
+                    const baseLen = trunkHeight * layer.lenMult;
+                    const startPos = new THREE.Vector3(0, startHeight, 0);
+                    
+                    createBranch(startPos, dir, baseLen, 12 * layer.lenMult + 2, layer.depth);
+                }
+            });
 
+            // Finalize Geometry
             const geometry = new THREE.BufferGeometry();
             geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
             geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(colors, 3));
@@ -254,6 +249,7 @@
             treePoints = new THREE.Points(geometry, material);
             scene.add(treePoints);
         }
+
 
         function generateFallingPetals() {
             const count = 3000;
