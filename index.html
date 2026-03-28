@@ -117,7 +117,7 @@
 
             // --- 1. Branch & Blossom Generation Logic ---
             function createBranch(start, dir, length, radius, depth) {
-                const actualLength = length * (0.85 + Math.random() * 0.3);
+                const actualLength = length * (0.8 + Math.random() * 0.4);
                 const end = start.clone().add(dir.clone().multiplyScalar(actualLength));
                 
                 // Draw Branch Particles
@@ -143,7 +143,7 @@
                 // Lush Blossom Clusters
                 if (depth < 5) {
                     // More blooms as depth decreases (smaller branches)
-                    const bloomDensity = (6 - depth) * 120; 
+                    const bloomDensity = (6 - depth) * 240; 
                     const clusterSpread = (6 - depth) * 12;
 
                     for (let i = 0; i < bloomDensity; i++) {
@@ -243,11 +243,11 @@
             // --- 3. Optimized Branching Strategy ---
             // Start main branches before the very top to avoid explosion
             const layers = [
-                { h: 0.55, lenMult: 0.85, angleDeg: 75, count: [5, 6], depth: 5 },
-                { h: 0.70, lenMult: 0.70, angleDeg: 60, count: [5, 6], depth: 5 },
-                { h: 0.82, lenMult: 0.55, angleDeg: 45, count: [4, 5], depth: 4 },
-                { h: 0.92, lenMult: 0.40, angleDeg: 30, count: [4, 4], depth: 4 },
-                { h: 0.98, lenMult: 0.25, angleDeg: 15, count: [3, 3], depth: 3 }
+                { h: 0.55, lenMult: 1.10, angleDeg: 75, count: [5, 6], depth: 5 },
+                { h: 0.70, lenMult: 0.85, angleDeg: 60, count: [5, 6], depth: 5 },
+                { h: 0.82, lenMult: 0.60, angleDeg: 45, count: [4, 5], depth: 4 },
+                { h: 0.92, lenMult: 0.35, angleDeg: 30, count: [4, 4], depth: 4 },
+                { h: 0.98, lenMult: 0.15, angleDeg: 15, count: [3, 3], depth: 3 }
             ];
 
             const degToRad = Math.PI / 180;
@@ -283,7 +283,7 @@
 
 
         function generateFallingPetals() {
-            const count = 6000; // Increased count
+            const count = 12000; // Increased count
             const pos = [], col = [], size = [], opac = [], vel = [];
             for (let i = 0; i < count; i++) {
                 pos.push((Math.random() - 0.5) * 1800, Math.random() * 1200, (Math.random() - 0.5) * 1800);
