@@ -243,11 +243,11 @@
             // --- 3. Optimized Branching Strategy ---
             // Start main branches before the very top to avoid explosion
             const layers = [
-                { h: 0.55, lenMult: 1.10, angleDeg: 75, count: [5, 6], depth: 5 },
-                { h: 0.70, lenMult: 0.85, angleDeg: 60, count: [5, 6], depth: 5 },
-                { h: 0.82, lenMult: 0.60, angleDeg: 45, count: [4, 5], depth: 4 },
-                { h: 0.92, lenMult: 0.35, angleDeg: 30, count: [4, 4], depth: 4 },
-                { h: 0.98, lenMult: 0.15, angleDeg: 15, count: [3, 3], depth: 3 }
+                { h: 0.55, lenMult: 0.275, angleDeg: 75, count: [5, 6], depth: 5 },
+                { h: 0.70, lenMult: 0.2125, angleDeg: 60, count: [5, 6], depth: 5 },
+                { h: 0.82, lenMult: 0.15, angleDeg: 45, count: [4, 5], depth: 4 },
+                { h: 0.92, lenMult: 0.0875, angleDeg: 30, count: [4, 4], depth: 4 },
+                { h: 0.98, lenMult: 0.0375, angleDeg: 15, count: [3, 3], depth: 3 }
             ];
 
             const degToRad = Math.PI / 180;
