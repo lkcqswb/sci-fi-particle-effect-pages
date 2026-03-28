@@ -3,255 +3,212 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Cyber Sakura - Sci-Fi Particle Effect</title>
+<title>Celestial Sakura - Particle Tree</title>
 <style>
-  *{margin:0;padding:0;box-sizing:border-box}
-  body{background:#02040a;overflow:hidden; cursor: none;}
-  canvas{display:block;width:100vw;height:100vh; filter: contrast(1.1) saturate(1.2);}
-  #ui{position:fixed; bottom:20px; left:20px; color:rgba(100,200,255,0.5); font-family:monospace; pointer-events:none; font-size:12px; letter-spacing:2px;}
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #000; overflow: hidden; }
+  canvas { display: block; width: 100vw; height: 100vh; }
 </style>
 </head>
 <body>
-<div id="ui">SYSTEM.STABLE // CHERRY_CORE_INIT // FLOW_ACTIVE</div>
 <canvas id="c"></canvas>
 <script>
-(function(){
-var cv=document.getElementById('c');
-var cx=cv.getContext('2d', {alpha: false}); // 优化性能
-var W,H;
+(function() {
+  const cv = document.getElementById('c');
+  const ctx = cv.getContext('2d');
+  let W, H;
 
-function resize(){
-  W=cv.width=window.innerWidth;
-  H=cv.height=window.innerHeight;
-}
-resize();
-window.addEventListener('resize',resize);
-
-var N=4500; // 优化粒子数量以保证流畅度
-var px=[],py=[],vx=[],vy=[],cr=[],cg=[],cb=[],sz=[],type=[],ph=[],life=[];
-var tx=[],ty=[];
-
-var mouse={x:-9000,y:-9000};
-var t=0;
-var windAngle=0,windStrength=1.5;
-var twAngle=0,twStrength=1.5;
-
-function rnd(a,b){return a+Math.random()*(b-a);}
-
-function init(){
-  px=[]; py=[]; vx=[]; vy=[]; tx=[]; ty=[];
-  cr=[]; cg=[]; cb=[]; sz=[]; type=[]; ph=[]; life=[];
-  for(var i=0;i<N;i++){
-    px.push(0);py.push(0);vx.push(0);vy.push(0);
-    tx.push(0);ty.push(0); life.push(Math.random());
-    cr.push(255);cg.push(255);cb.push(255);sz.push(2);type.push(0);ph.push(0);
+  function resize() {
+    W = cv.width = window.innerWidth;
+    H = cv.height = window.innerHeight;
   }
-}
+  resize();
+  window.addEventListener('resize', resize);
 
-function buildScene(){
-  var waterY=H*0.7;
-  var idx=0;
+  const branches = [];
+  const particles = [];
+  const branchEndpoints = [];
+  
+  // 树配置
+  const treeConfig = {
+    startX: 0,
+    startY: 0,
+    maxDepth: 10,
+    trunkWidth: 12,
+    trunkLength: 0,
+    branchColor: 'rgba(230, 230, 220, 0.7)', // 灰白色带淡金
+    particleCount: 2200
+  };
 
-  // 1. 底部水面粒子 (能量地平线)
-  var waterN=Math.floor(N*0.1);
-  for(var i=0;i<waterN;i++){
-    px[i]=rnd(0,W); py[i]=waterY+rnd(0,H-waterY);
-    tx[i]=px[i]; ty[i]=py[i];
-    vx[i]=rnd(-0.1,0.1); vy[i]=0;
-    cr[i]=60; cg[i]=130; cb[i]=255; // 赛博蓝
-    sz[i]=rnd(1,3); type[i]=1; ph[i]=rnd(0,Math.PI*2);
-    idx++;
-  }
-
-  // 2. 核心古建筑/樱花树点位 (发光簇)
-  var treeSpots=[
-    {x:W*0.1,y:H*0.4,r:H*0.25}, {x:W*0.9,y:H*0.4,r:H*0.25},
-    {x:W*0.25,y:H*0.2,r:H*0.15}, {x:W*0.75,y:H*0.2,r:H*0.15},
-    {x:W*0.5,y:H*0.1,r:H*0.12}
-  ];
-
-  for(var ti=0;ti<treeSpots.length;ti++){
-    var tc=treeSpots[ti];
-    var perTree=Math.floor(N*0.12);
-    for(var i=0;i<perTree;i++){
-      if(idx>=N)break;
-      var a=rnd(0,Math.PI*2);
-      var d=Math.pow(rnd(0,1), 1.5)*tc.r;
-      px[idx]=tc.x+Math.cos(a)*d;
-      py[idx]=tc.y+Math.sin(a)*d;
-      tx[idx]=px[idx]; ty[idx]=py[idx];
-      var k=rnd(0,1);
-      if(k<0.4){cr[idx]=255;cg[idx]=100;cb[idx]=200;} // 霓虹粉
-      else if(k<0.8){cr[idx]=150;cg[idx]=180;cb[idx]=255;} // 浅紫蓝
-      else {cr[idx]=255;cg[idx]=255;cb[idx]=255;}
-      sz[idx]=rnd(1,4); type[idx]=2; ph[idx]=rnd(0,Math.PI*2);
-      idx++;
-    }
-  }
-
-  // 3. 飘落粒子 (流动数据流)
-  var fallN=N-idx;
-  for(var i=0;i<fallN;i++){
-    var ci=idx+i;
-    px[ci]=rnd(0,W); py[ci]=rnd(-H,H*0.7);
-    tx[ci]=px[ci]+rnd(-W*0.3,W*0.3); ty[ci]=H+100;
-    vx[ci]=0; vy[ci]=rnd(0.5,2);
-    cr[ci]=255; cg[ci]=rnd(150,220); cb[ci]=rnd(200,255);
-    sz[ci]=rnd(1,4); type[ci]=5; ph[ci]=rnd(0,Math.PI*2);
-  }
-}
-
-function drawBloom(x,y,s,r,g,b,alpha, layers){
-  for(var l=0; l<layers; l++){
-    var radius = s * (1 + l * 4);
-    var a = alpha / (l + 1);
-    var gr=cx.createRadialGradient(x,y,0,x,y,radius);
-    gr.addColorStop(0,'rgba('+r+','+g+','+b+','+a+')');
-    gr.addColorStop(1,'rgba('+r+','+g+','+b+',0)');
-    cx.fillStyle=gr;
-    cx.beginPath();cx.arc(x,y,radius,0,Math.PI*2);cx.fill();
-  }
-}
-
-function draw(){
-  // 关键改进：使用半透明背景产生运动残影，增强科幻流光感
-  cx.globalCompositeOperation = 'source-over';
-  var bgGrd = cx.createLinearGradient(0,0,0,H);
-  bgGrd.addColorStop(0, '#020612');
-  bgGrd.addColorStop(1, '#050a1f');
-  cx.fillStyle = bgGrd;
-  cx.globalAlpha = 0.18; // 产生拖尾的核心
-  cx.fillRect(0,0,W,H);
-  cx.globalAlpha = 1.0;
-
-  // 绘制远景朦胧层 (大气感)
-  cx.save();
-  cx.globalCompositeOperation = 'lighter';
-  for(var i=0; i<N; i+=15){ // 抽样绘制大光晕提高性能
-    if(type[i]===2 || type[i]===5){
-      var x=px[i], y=py[i], s=sz[i];
-      var pulse = 1 + Math.sin(t*2 + ph[i])*0.3;
-      drawBloom(x,y,s*pulse, cr[i],cg[i],cb[i], 0.1, 2);
-    }
-  }
-  cx.restore();
-
-  // 绘制水面反射与地平线
-  var waterY=H*0.7;
-  cx.fillStyle = 'rgba(10,20,50,0.5)';
-  cx.fillRect(0, waterY, W, H-waterY);
-
-  // 绘制粒子核心 (核心高亮)
-  cx.save();
-  cx.globalCompositeOperation = 'lighter';
-  for(var i=0; i<N; i++){
-    var x=px[i], y=py[i], s=sz[i], tp=type[i];
-    var p = Math.sin(t*3 + ph[i]);
-    
-    // 渲染不同类型的粒子
-    if(tp===5){ // 飘落流光
-      cx.fillStyle = 'rgba('+cr[i]+','+cg[i]+','+cb[i]+',0.8)';
-      cx.beginPath();
-      cx.arc(x,y,s*(1+p*0.2),0,Math.PI*2);
-      cx.fill();
-      // 偶尔绘制能量连线
-      if(i%100===0) {
-        cx.strokeStyle = 'rgba(100,200,255,0.1)';
-        cx.lineWidth = 0.5;
-        cx.beginPath(); cx.moveTo(x,y); cx.lineTo(x+50*p, y+100); cx.stroke();
+  class Branch {
+    constructor(x1, y1, angle, length, depth, width) {
+      this.x1 = x1;
+      this.y1 = y1;
+      this.angle = angle;
+      this.length = length;
+      this.depth = depth;
+      this.width = width;
+      
+      // 生成曲折路径
+      this.segments = [];
+      let cx = x1;
+      let cy = y1;
+      const segmentCount = 4 + Math.floor(Math.random() * 4);
+      const segLen = length / segmentCount;
+      
+      for (let i = 0; i < segmentCount; i++) {
+        const nextAngle = angle + (Math.random() - 0.5) * 0.4;
+        const nx = cx + Math.cos(nextAngle) * segLen;
+        const ny = cy + Math.sin(nextAngle) * segLen;
+        this.segments.push({ x1: cx, y1: cy, x2: nx, y2: ny });
+        cx = nx;
+        cy = ny;
       }
-    } else {
-      cx.fillStyle = 'rgba('+cr[i]+','+cg[i]+','+cb[i]+',0.6)';
-      cx.beginPath(); cx.arc(x,y,s,0,Math.PI*2); cx.fill();
-    }
-  }
-  cx.restore();
+      this.x2 = cx;
+      this.y2 = cy;
 
-  // 全局后期：暗角与中心增强
-  var vig = cx.createRadialGradient(W/2, H/2, W*0.2, W/2, H/2, W*0.8);
-  vig.addColorStop(0, 'rgba(0,0,0,0)');
-  vig.addColorStop(1, 'rgba(0,0,0,0.7)');
-  cx.fillStyle = vig;
-  cx.fillRect(0,0,W,H);
-
-  // 鼠标交互光晕
-  if(mouse.x > 0){
-    cx.save();
-    cx.globalCompositeOperation = 'lighter';
-    drawBloom(mouse.x, mouse.y, 20, 100, 200, 255, 0.3, 3);
-    cx.restore();
-    // 鼠标指针
-    cx.strokeStyle = 'rgba(100,200,255,0.8)';
-    cx.lineWidth = 2;
-    cx.beginPath(); cx.arc(mouse.x, mouse.y, 15, 0, Math.PI*2); cx.stroke();
-    cx.beginPath(); cx.moveTo(mouse.x-20, mouse.y); cx.lineTo(mouse.x+20, mouse.y); cx.stroke();
-    cx.beginPath(); cx.moveTo(mouse.x, mouse.y-20); cx.lineTo(mouse.x, mouse.y+20); cx.stroke();
-  }
-}
-
-function update(){
-  t+=0.016;
-  windAngle+=(twAngle-windAngle)*0.01;
-  windStrength+=(twStrength-windStrength)*0.01;
-  if(Math.random()<0.01){
-    twAngle=rnd(-1,1); twStrength=rnd(0.5,3);
-  }
-
-  for(var i=0;i<N;i++){
-    var tp=type[i];
-    
-    // 基础运动逻辑
-    if(tp===5){ // 飘落
-      vy[i] += 0.01; 
-      vx[i] += Math.sin(t + ph[i])*0.05 + windAngle*0.1;
-      px[i] += vx[i];
-      py[i] += vy[i];
-      if(py[i]>H+50){
-        py[i]=-50; px[i]=rnd(0,W); vy[i]=rnd(1,3); vx[i]=0;
-      }
-    } else if(tp===1){ // 水面
-      px[i] += Math.sin(t*0.5 + ph[i])*0.2;
-    } else { // 树丛抖动
-      px[i] = tx[i] + Math.sin(t*1.2 + ph[i])*3;
-      py[i] = ty[i] + Math.cos(t*1.5 + ph[i])*3;
-    }
-
-    // 鼠标排斥
-    if(mouse.x > 0){
-      var dx=px[i]-mouse.x, dy=py[i]-mouse.y, d=Math.sqrt(dx*dx+dy*dy);
-      if(d<150){
-        var f = (150-d)*0.02;
-        vx[i]+=dx/d*f; vy[i]+=dy/d*f;
-        px[i]+=vx[i]; py[i]+=vy[i];
+      if (depth === treeConfig.maxDepth || (depth > 5 && Math.random() < 0.1)) {
+        branchEndpoints.push({ x: this.x2, y: this.y2, depth: this.depth });
       }
     }
-    
-    vx[i]*=0.95; vy[i]*=0.95;
-  }
-}
 
-function loop(){
-  draw();
-  update();
-  requestAnimationFrame(loop);
-}
-
-cv.addEventListener('mousemove',function(e){mouse.x=e.clientX;mouse.y=e.clientY;});
-cv.addEventListener('mouseleave',function(){mouse.x=-9000;});
-cv.addEventListener('mousedown', function(){
-  // 爆发效果
-  for(var i=0; i<N; i++){
-    var dx=px[i]-mouse.x, dy=py[i]-mouse.y, d=Math.sqrt(dx*dx+dy*dy);
-    if(d<300){
-      var f = (300-d)*0.1;
-      vx[i]+=dx/d*f; vy[i]+=dy/d*f;
+    draw() {
+      ctx.strokeStyle = treeConfig.branchColor;
+      ctx.lineWidth = this.width;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      this.segments.forEach(seg => {
+        ctx.moveTo(seg.x1, seg.y1);
+        ctx.lineTo(seg.x2, seg.y2);
+      });
+      ctx.stroke();
     }
   }
-});
 
-init();
-buildScene();
-loop();
+  function createTree(x, y, angle, length, depth, width) {
+    const branch = new Branch(x, y, angle, length, depth, width);
+    branches.push(branch);
+
+    if (depth < treeConfig.maxDepth) {
+      const numBranches = (depth < 2) ? 2 : (Math.random() < 0.8 ? 2 : 3);
+      for (let i = 0; i < numBranches; i++) {
+        const newAngle = angle + (Math.random() - 0.5) * 0.9;
+        const newLength = length * (0.7 + Math.random() * 0.2);
+        const newWidth = width * 0.65;
+        createTree(branch.x2, branch.y2, newAngle, newLength, depth + 1, newWidth);
+      }
+    }
+  }
+
+  class Particle {
+    constructor() {
+      this.init();
+    }
+
+    init() {
+      // 粒子主要分布在树枝末端
+      const ep = branchEndpoints[Math.floor(Math.random() * branchEndpoints.length)];
+      // 越靠近外围（depth越大），粒子分布范围越广，形成光晕
+      const spread = (ep.depth / treeConfig.maxDepth) * 60 + 20;
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.pow(Math.random(), 0.5) * spread;
+      
+      this.baseX = ep.x + Math.cos(angle) * dist;
+      this.baseY = ep.y + Math.sin(angle) * dist;
+      this.x = this.baseX;
+      this.y = this.baseY;
+      
+      this.size = Math.random() * 1.5 + 0.5;
+      this.alpha = Math.random() * 0.6 + 0.2;
+      
+      // 色彩：亮白为主，冰蓝和淡紫
+      const r = Math.random();
+      if (r < 0.7) {
+        this.color = `rgba(255, 255, 255, ${this.alpha})`; // 纯白
+      } else if (r < 0.85) {
+        this.color = `rgba(200, 230, 255, ${this.alpha})`; // 冰蓝
+      } else {
+        this.color = `rgba(230, 200, 255, ${this.alpha})`; // 淡紫
+      }
+      
+      this.vx = (Math.random() - 0.5) * 0.2;
+      this.vy = (Math.random() - 0.5) * 0.2;
+      this.phi = Math.random() * Math.PI * 2;
+    }
+
+    update(t) {
+      this.x = this.baseX + Math.sin(t + this.phi) * 3;
+      this.y = this.baseY + Math.cos(t * 1.2 + this.phi) * 3;
+    }
+
+    draw() {
+      ctx.fillStyle = this.color;
+      ctx.beginPath();
+      ctx.arc(this.x, this.y, this.size, 0, Math.PI * 2);
+      ctx.fill();
+      
+      // 增加微弱光晕效果
+      if (this.size > 1.2) {
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = this.color;
+      } else {
+        ctx.shadowBlur = 0;
+      }
+    }
+  }
+
+  function init() {
+    branches.length = 0;
+    particles.length = 0;
+    branchEndpoints.length = 0;
+    
+    // 从底部中央生长
+    const trunkLen = H * 0.22;
+    createTree(W / 2, H * 0.9, -Math.PI / 2, trunkLen, 0, treeConfig.trunkWidth);
+    
+    for (let i = 0; i < treeConfig.particleCount; i++) {
+      particles.push(new Particle());
+    }
+  }
+
+  function drawBottomLight() {
+    const grd = ctx.createRadialGradient(W / 2, H * 0.95, 0, W / 2, H * 0.95, H * 0.4);
+    grd.addColorStop(0, 'rgba(255, 250, 220, 0.25)'); // 暖白光
+    grd.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = grd;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  let time = 0;
+  function loop() {
+    time += 0.01;
+    // 纯黑背景
+    ctx.fillStyle = '#000';
+    ctx.fillRect(0, 0, W, H);
+    ctx.shadowBlur = 0;
+
+    drawBottomLight();
+
+    // 绘制树干
+    branches.forEach(b => b.draw());
+
+    // 绘制粒子
+    ctx.globalCompositeOperation = 'lighter';
+    particles.forEach(p => {
+      p.update(time);
+      p.draw();
+    });
+    ctx.globalCompositeOperation = 'source-over';
+
+    requestAnimationFrame(loop);
+  }
+
+  init();
+  loop();
+
+  window.addEventListener('click', () => {
+    init();
+  });
 })();
 </script>
 </body>
