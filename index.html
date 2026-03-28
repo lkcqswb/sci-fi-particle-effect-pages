@@ -248,22 +248,90 @@
             const sizes = new Float32Array(TRUNK_PARTICLES);
             const opacities = new Float32Array(TRUNK_PARTICLES);
 
-            for (let i = 0; i < TRUNK_PARTICLES; i++) {
-                const h = Math.random() * 200 - 50;
-                const radius = (200 - h) * 0.15 * Math.random();
-                const angle = Math.random() * Math.PI * 2;
+            let particleIdx = 0;
 
-                positions[i * 3] = Math.cos(angle) * radius;
-                positions[i * 3 + 1] = h;
-                positions[i * 3 + 2] = Math.sin(angle) * radius;
+            // Helper to add particles along a branch segment
+            function addBranchSegment(startX, startY, startZ, endX, endY, endZ, startRad, endRad, count) {
+                const vec = new THREE.Vector3(endX - startX, endY - startY, endZ - startZ);
+                const len = vec.length();
+                const normVec = vec.clone().normalize();
+                
+                // Find a perpendicular vector for the radius offset
+                const pVec = Math.abs(normVec.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+                const tangent = new THREE.Vector3().crossVectors(normVec, pVec).normalize();
+                const bitangent = new THREE.Vector3().crossVectors(normVec, tangent).normalize();
 
-                colors[i * 3] = 0.2; // Dark Trunk
-                colors[i * 3 + 1] = 0.05;
-                colors[i * 3 + 2] = 0.1;
+                for (let i = 0; i < count; i++) {
+                    if (particleIdx >= TRUNK_PARTICLES) break;
 
-                sizes[i] = 1.0 + Math.random() * 2.0;
-                opacities[i] = 0.4 + Math.random() * 0.6;
+                    const t = Math.random();
+                    const currentRad = startRad + (endRad - startRad) * t;
+                    
+                    // Random point within the cylinder segment cross-section
+                    const angle = Math.random() * Math.PI * 2;
+                    const r = Math.sqrt(Math.random()) * currentRad;
+                    
+                    const offsetX = (Math.cos(angle) * tangent.x + Math.sin(angle) * bitangent.x) * r;
+                    const offsetY = (Math.cos(angle) * tangent.y + Math.sin(angle) * bitangent.y) * r;
+                    const offsetZ = (Math.cos(angle) * tangent.z + Math.sin(angle) * bitangent.z) * r;
+
+                    const px = startX + vec.x * t + offsetX;
+                    const py = startY + vec.y * t + offsetY;
+                    const pz = startZ + vec.z * t + offsetZ;
+
+                    const idx = particleIdx * 3;
+                    positions[idx] = px;
+                    positions[idx + 1] = py;
+                    positions[idx + 2] = pz;
+
+                    // Sacred Silver/White Color
+                    const silverFactor = 0.8 + Math.random() * 0.2;
+                    colors[idx] = silverFactor;
+                    colors[idx + 1] = silverFactor + 0.05;
+                    colors[idx + 2] = 1.0;
+
+                    sizes[particleIdx] = (currentRad * 0.5) + 2.0 + Math.random() * 3.0;
+                    opacities[particleIdx] = 0.7 + Math.random() * 0.3;
+
+                    particleIdx++;
+                }
             }
+
+            // Recursive growth function
+            function grow(x, y, z, dir, length, radius, depth) {
+                if (depth <= 0 || particleIdx >= TRUNK_PARTICLES) return;
+
+                const end = new THREE.Vector3(x, y, z).add(dir.clone().multiplyScalar(length));
+                
+                // Main trunk segments get more particles
+                const segmentParticles = Math.floor(TRUNK_PARTICLES / (Math.pow(2.2, 5 - depth) * 4));
+                addBranchSegment(x, y, z, end.x, end.y, end.z, radius, radius * 0.7, segmentParticles);
+
+                const numBranches = depth > 3 ? 2 : (Math.random() > 0.3 ? 3 : 2);
+                for (let i = 0; i < numBranches; i++) {
+                    const newDir = dir.clone();
+                    // Apply random variation to direction
+                    const modifier = new THREE.Vector3(
+                        (Math.random() - 0.5) * 0.8,
+                        (Math.random() * 0.5) + 0.5, // Prefer upward
+                        (Math.random() - 0.5) * 0.8
+                    ).normalize();
+                    
+                    newDir.lerp(modifier, 0.45).normalize();
+                    
+                    grow(
+                        end.x, end.y, end.z,
+                        newDir,
+                        length * (0.7 + Math.random() * 0.2),
+                        radius * 0.65,
+                        depth - 1
+                    );
+                }
+            }
+
+            // Initial growth (Main Trunk)
+            // Start at bottom center, grow upwards
+            grow(0, -50, 0, new THREE.Vector3(0, 1, 0), 120, 32, 5);
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
