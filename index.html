@@ -54,16 +54,17 @@
         import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 
         // --- Configuration ---
-        const CANOPY_PARTICLES = 300000;
-        const PETAL_PARTICLES = 5000;
-        const TRUNK_PARTICLES = 50000;
+        const CANOPY_PARTICLES = 400000;
+        const PETAL_PARTICLES = 8000;
+        const TRUNK_PARTICLES = 150000;
         
         const COLORS = {
-            hotPink: new THREE.Color(0xff1493),
-            lightPink: new THREE.Color(0xff69b4),
+            hotPink: new THREE.Color(0xff69b4),
+            softPink: new THREE.Color(0xffb6c1),
             gold: new THREE.Color(0xffd700),
+            brightGold: new THREE.Color(0xfffacd),
             white: new THREE.Color(0xffffff),
-            deepRed: new THREE.Color(0x330005)
+            deepRed: new THREE.Color(0x1a0000)
         };
 
         // --- Shaders ---
@@ -78,7 +79,7 @@
                 vColor = customColor;
                 vOpacity = opacity;
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = size * (300.0 / -mvPosition.z);
+                gl_PointSize = size * (350.0 / -mvPosition.z);
                 gl_Position = projectionMatrix * mvPosition;
             }
         `;
@@ -88,12 +89,12 @@
             varying float vOpacity;
             
             void main() {
-                // Circular soft particle
                 float dist = distance(gl_PointCoord, vec2(0.5, 0.5));
                 if (dist > 0.5) discard;
                 
+                // Softer gaussian-like falloff for "cotton candy" look
                 float strength = 1.0 - (dist * 2.0);
-                strength = pow(strength, 2.0);
+                strength = pow(strength, 2.5);
                 
                 gl_FragColor = vec4(vColor, vOpacity * strength);
             }
@@ -109,16 +110,17 @@
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050005);
-            scene.fog = new THREE.FogExp2(0x050005, 0.002);
+            scene.background = new THREE.Color(0x0a0000);
+            scene.fog = new THREE.FogExp2(0x0a0000, 0.0015);
 
             camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
-            camera.position.set(0, 150, 500);
+            camera.position.set(0, 200, 600);
 
             renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: "high-performance" });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.toneMapping = THREE.ReinhardToneMapping;
+            renderer.toneMappingExposure = 1.2;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
             // Controls
@@ -126,228 +128,215 @@
             controls.enableDamping = true;
             controls.dampingFactor = 0.05;
             controls.autoRotate = true;
-            controls.autoRotateSpeed = 0.5;
-            controls.maxDistance = 1000;
-            controls.minDistance = 100;
+            controls.autoRotateSpeed = 0.3;
+            controls.maxDistance = 1200;
+            controls.minDistance = 150;
+            controls.target.set(0, 200, 0);
 
             // --- Post Processing (Bloom) ---
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(
                 new THREE.Vector2(window.innerWidth, window.innerHeight), 
-                2.5, // strength
-                0.4, // radius
-                0.1  // threshold
+                3.5, // High strength for sacred glow
+                0.5, // radius
+                0.05 // low threshold to bloom more
             );
             
             composer = new EffectComposer(renderer);
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            // --- Create Tree Canopy ---
-            createCanopy();
-            
-            // --- Create Trunk ---
-            createTrunk();
-
-            // --- Create Falling Petals ---
+            // Create geometry holders
+            createTree();
             createPetals();
 
-            // --- Bottom Light Source ---
-            const bottomLight = new THREE.PointLight(0xffaa00, 10, 800);
-            bottomLight.position.set(0, -50, 0);
-            scene.add(bottomLight);
+            // --- Bottom Light & Energy Source ---
+            const mainLight = new THREE.PointLight(0xffcc00, 15, 600);
+            mainLight.position.set(0, 0, 0);
+            scene.add(mainLight);
 
-            const bottomGlow = new THREE.Mesh(
-                new THREE.PlaneGeometry(1000, 1000),
-                new THREE.MeshBasicMaterial({ 
-                    color: 0x330005, 
-                    transparent: true, 
-                    opacity: 0.5, 
-                    side: THREE.DoubleSide 
-                })
-            );
-            bottomGlow.rotation.x = Math.PI / 2;
-            bottomGlow.position.y = -50;
-            scene.add(bottomGlow);
+            // Intense ground glow
+            const groundGlowGeo = new THREE.CircleGeometry(200, 64);
+            const groundGlowMat = new THREE.MeshBasicMaterial({
+                color: 0xffaa00,
+                transparent: true,
+                opacity: 0.4,
+                side: THREE.DoubleSide,
+                blending: THREE.AdditiveBlending
+            });
+            const groundGlow = new THREE.Mesh(groundGlowGeo, groundGlowMat);
+            groundGlow.rotation.x = -Math.PI / 2;
+            groundGlow.position.y = -45;
+            scene.add(groundGlow);
+
+            // Core pillar of light
+            const pillarGeo = new THREE.CylinderGeometry(5, 40, 150, 32, 1, true);
+            const pillarMat = new THREE.MeshBasicMaterial({
+                color: 0xffcc00,
+                transparent: true,
+                opacity: 0.1,
+                blending: THREE.AdditiveBlending,
+                side: THREE.DoubleSide
+            });
+            const pillar = new THREE.Mesh(pillarGeo, pillarMat);
+            pillar.position.y = 20;
+            scene.add(pillar);
 
             window.addEventListener('resize', onWindowResize);
         }
 
-        function createCanopy() {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(CANOPY_PARTICLES * 3);
-            const colors = new Float32Array(CANOPY_PARTICLES * 3);
-            const sizes = new Float32Array(CANOPY_PARTICLES);
-            const opacities = new Float32Array(CANOPY_PARTICLES);
+        function createTree() {
+            // Arrays for Trunk
+            const tPos = [];
+            const tCol = [];
+            const tSize = [];
+            const tOpac = [];
 
-            for (let i = 0; i < CANOPY_PARTICLES; i++) {
-                // Distribute particles in a cloud-like structure
-                // Main mass
-                const r = 150 + Math.random() * 50;
-                const theta = Math.random() * Math.PI * 2;
-                const phi = Math.random() * Math.PI * 0.7; // Focused on top half
+            // Arrays for Canopy
+            const cPos = [];
+            const cCol = [];
+            const cSize = [];
+            const cOpac = [];
 
-                // Cluster factor
-                const clusterX = Math.pow(Math.random(), 2) * (Math.random() > 0.5 ? 1 : -1) * 60;
-                const clusterY = Math.pow(Math.random(), 2) * (Math.random() > 0.5 ? 1 : -1) * 40;
-                const clusterZ = Math.pow(Math.random(), 2) * (Math.random() > 0.5 ? 1 : -1) * 60;
+            const tempColor = new THREE.Color();
 
-                const x = r * Math.sin(phi) * Math.cos(theta) + clusterX;
-                const y = r * Math.cos(phi) + 150 + clusterY;
-                const z = r * Math.sin(phi) * Math.sin(theta) + clusterZ;
-
-                positions[i * 3] = x;
-                positions[i * 3 + 1] = y;
-                positions[i * 3 + 2] = z;
-
-                // Color mapping: Pink to Gold/White
-                let color;
-                const rand = Math.random();
-                if (rand > 0.95) {
-                    color = COLORS.white;
-                } else if (rand > 0.8) {
-                    color = COLORS.gold;
-                } else if (rand > 0.4) {
-                    color = COLORS.hotPink;
-                } else {
-                    color = COLORS.lightPink;
-                }
-
-                colors[i * 3] = color.r;
-                colors[i * 3 + 1] = color.g;
-                colors[i * 3 + 2] = color.b;
-
-                sizes[i] = 1.0 + Math.random() * 3.0;
-                opacities[i] = 0.2 + Math.random() * 0.8;
-            }
-
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
-            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-            geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
-
-            const material = new THREE.ShaderMaterial({
-                uniforms: {
-                    time: { value: 0 }
-                },
-                vertexShader: particleVertexShader,
-                fragmentShader: particleFragmentShader,
-                blending: THREE.AdditiveBlending,
-                depthTest: false,
-                transparent: true
-            });
-
-            canopyPoints = new THREE.Points(geometry, material);
-            scene.add(canopyPoints);
-        }
-
-        function createTrunk() {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(TRUNK_PARTICLES * 3);
-            const colors = new Float32Array(TRUNK_PARTICLES * 3);
-            const sizes = new Float32Array(TRUNK_PARTICLES);
-            const opacities = new Float32Array(TRUNK_PARTICLES);
-
-            let particleIdx = 0;
-
-            // Helper to add particles along a branch segment
-            function addBranchSegment(startX, startY, startZ, endX, endY, endZ, startRad, endRad, count) {
-                const vec = new THREE.Vector3(endX - startX, endY - startY, endZ - startZ);
-                const len = vec.length();
-                const normVec = vec.clone().normalize();
+            function addParticlesAlongBranch(start, end, startRad, endRad, isTip) {
+                const diff = new THREE.Vector3().subVectors(end, start);
+                const len = diff.length();
+                const iterations = Math.max(10, Math.floor(len * (isTip ? 80 : 50)));
                 
-                // Find a perpendicular vector for the radius offset
-                const pVec = Math.abs(normVec.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-                const tangent = new THREE.Vector3().crossVectors(normVec, pVec).normalize();
-                const bitangent = new THREE.Vector3().crossVectors(normVec, tangent).normalize();
+                const norm = diff.clone().normalize();
+                const pVec = Math.abs(norm.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
+                const tangent = new THREE.Vector3().crossVectors(norm, pVec).normalize();
+                const bitangent = new THREE.Vector3().crossVectors(norm, tangent).normalize();
 
-                for (let i = 0; i < count; i++) {
-                    if (particleIdx >= TRUNK_PARTICLES) break;
-
+                for (let i = 0; i < iterations; i++) {
                     const t = Math.random();
-                    const currentRad = startRad + (endRad - startRad) * t;
-                    
-                    // Random point within the cylinder segment cross-section
+                    const r = Math.sqrt(Math.random()) * (startRad + (endRad - startRad) * t);
                     const angle = Math.random() * Math.PI * 2;
-                    const r = Math.sqrt(Math.random()) * currentRad;
                     
-                    const offsetX = (Math.cos(angle) * tangent.x + Math.sin(angle) * bitangent.x) * r;
-                    const offsetY = (Math.cos(angle) * tangent.y + Math.sin(angle) * bitangent.y) * r;
-                    const offsetZ = (Math.cos(angle) * tangent.z + Math.sin(angle) * bitangent.z) * r;
+                    const p = new THREE.Vector3()
+                        .copy(start)
+                        .addScaledVector(diff, t)
+                        .addScaledVector(tangent, Math.cos(angle) * r)
+                        .addScaledVector(bitangent, Math.sin(angle) * r);
 
-                    const px = startX + vec.x * t + offsetX;
-                    const py = startY + vec.y * t + offsetY;
-                    const pz = startZ + vec.z * t + offsetZ;
+                    tPos.push(p.x, p.y, p.z);
 
-                    const idx = particleIdx * 3;
-                    positions[idx] = px;
-                    positions[idx + 1] = py;
-                    positions[idx + 2] = pz;
+                    // Gradient: Gold at bottom (-50) to Pink at top (~400)
+                    const heightFactor = THREE.MathUtils.clamp((p.y + 50) / 400, 0, 1);
+                    
+                    if (heightFactor < 0.3) {
+                        tempColor.copy(COLORS.brightGold).lerp(COLORS.gold, heightFactor / 0.3);
+                    } else if (heightFactor < 0.6) {
+                        tempColor.copy(COLORS.gold).lerp(COLORS.hotPink, (heightFactor - 0.3) / 0.3);
+                    } else {
+                        tempColor.copy(COLORS.hotPink).lerp(COLORS.softPink, (heightFactor - 0.6) / 0.4);
+                    }
 
-                    // Sacred Silver/White Color
-                    const silverFactor = 0.8 + Math.random() * 0.2;
-                    colors[idx] = silverFactor;
-                    colors[idx + 1] = silverFactor + 0.05;
-                    colors[idx + 2] = 1.0;
+                    tCol.push(tempColor.r, tempColor.g, tempColor.b);
+                    tSize.push(isTip ? (1.5 + Math.random() * 2) : (2.0 + Math.random() * 4));
+                    tOpac.push(0.6 + Math.random() * 0.4);
 
-                    sizes[particleIdx] = (currentRad * 0.5) + 2.0 + Math.random() * 3.0;
-                    opacities[particleIdx] = 0.7 + Math.random() * 0.3;
+                    // Add canopy particles at tips or randomly along upper branches
+                    if (isTip || (heightFactor > 0.4 && Math.random() > 0.8)) {
+                        const cloudCount = isTip ? 15 : 2;
+                        for(let j=0; j<cloudCount; j++) {
+                            const offset = new THREE.Vector3(
+                                (Math.random() - 0.5) * 50,
+                                (Math.random() - 0.5) * 40,
+                                (Math.random() - 0.5) * 50
+                            );
+                            const cp = p.clone().add(offset);
+                            cPos.push(cp.x, cp.y, cp.z);
+                            
+                            // Canopy is mostly soft pink
+                            const cRand = Math.random();
+                            if (cRand > 0.8) tempColor.copy(COLORS.white);
+                            else if (cRand > 0.4) tempColor.copy(COLORS.softPink);
+                            else tempColor.copy(COLORS.hotPink);
 
-                    particleIdx++;
+                            cCol.push(tempColor.r, tempColor.g, tempColor.b);
+                            cSize.push(2.0 + Math.random() * 6.0);
+                            cOpac.push(0.1 + Math.random() * 0.4);
+                        }
+                    }
                 }
             }
 
-            // Recursive growth function
-            function grow(x, y, z, dir, length, radius, depth) {
-                if (depth <= 0 || particleIdx >= TRUNK_PARTICLES) return;
-
-                const end = new THREE.Vector3(x, y, z).add(dir.clone().multiplyScalar(length));
+            // Recursive Fractal Growth
+            function grow(start, dir, length, radius, depth) {
+                const end = new THREE.Vector3().copy(start).addScaledVector(dir, length);
+                const isTip = depth <= 1;
                 
-                // Main trunk segments get more particles
-                const segmentParticles = Math.floor(TRUNK_PARTICLES / (Math.pow(2.2, 5 - depth) * 4));
-                addBranchSegment(x, y, z, end.x, end.y, end.z, radius, radius * 0.7, segmentParticles);
+                addParticlesAlongBranch(start, end, radius, radius * 0.6, isTip);
 
-                const numBranches = depth > 3 ? 2 : (Math.random() > 0.3 ? 3 : 2);
-                for (let i = 0; i < numBranches; i++) {
+                if (depth <= 0) return;
+
+                // Branching
+                const branches = depth > 4 ? 1 : (depth > 2 ? 3 : 2); 
+                
+                for (let i = 0; i < branches; i++) {
                     const newDir = dir.clone();
-                    // Apply random variation to direction
-                    const modifier = new THREE.Vector3(
-                        (Math.random() - 0.5) * 0.8,
-                        (Math.random() * 0.5) + 0.5, // Prefer upward
-                        (Math.random() - 0.5) * 0.8
-                    ).normalize();
                     
-                    newDir.lerp(modifier, 0.45).normalize();
-                    
+                    if (depth > 4) {
+                        // Main trunk stays straight
+                        newDir.y += (Math.random() - 0.5) * 0.1;
+                    } else {
+                        // Spread out
+                        const spread = (6 - depth) * 0.3;
+                        newDir.x += (Math.random() - 0.5) * spread;
+                        newDir.y += (Math.random() * 0.2); // keep growing up
+                        newDir.z += (Math.random() - 0.5) * spread;
+                    }
+                    newDir.normalize();
+
                     grow(
-                        end.x, end.y, end.z,
+                        end,
                         newDir,
-                        length * (0.7 + Math.random() * 0.2),
-                        radius * 0.65,
+                        length * (0.75 + Math.random() * 0.15),
+                        radius * 0.6,
                         depth - 1
                     );
                 }
             }
 
-            // Initial growth (Main Trunk)
-            // Start at bottom center, grow upwards
-            grow(0, -50, 0, new THREE.Vector3(0, 1, 0), 120, 32, 5);
+            // Start growth
+            grow(new THREE.Vector3(0, -50, 0), new THREE.Vector3(0, 1, 0), 160, 25, 6);
 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
-            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-            geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
+            // Trunk Points
+            const tGeometry = new THREE.BufferGeometry();
+            tGeometry.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
+            tGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(tCol, 3));
+            tGeometry.setAttribute('size', new THREE.Float32BufferAttribute(tSize, 1));
+            tGeometry.setAttribute('opacity', new THREE.Float32BufferAttribute(tOpac, 1));
 
-            const material = new THREE.ShaderMaterial({
+            const tMaterial = new THREE.ShaderMaterial({
                 vertexShader: particleVertexShader,
                 fragmentShader: particleFragmentShader,
                 blending: THREE.AdditiveBlending,
-                depthTest: true,
-                transparent: true
+                transparent: true,
+                depthTest: true
             });
-
-            trunkPoints = new THREE.Points(geometry, material);
+            trunkPoints = new THREE.Points(tGeometry, tMaterial);
             scene.add(trunkPoints);
+
+            // Canopy Points
+            const cGeometry = new THREE.BufferGeometry();
+            cGeometry.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
+            cGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(cCol, 3));
+            cGeometry.setAttribute('size', new THREE.Float32BufferAttribute(cSize, 1));
+            cGeometry.setAttribute('opacity', new THREE.Float32BufferAttribute(cOpac, 1));
+
+            const cMaterial = new THREE.ShaderMaterial({
+                vertexShader: particleVertexShader,
+                fragmentShader: particleFragmentShader,
+                blending: THREE.AdditiveBlending,
+                transparent: true,
+                depthWrite: false
+            });
+            canopyPoints = new THREE.Points(cGeometry, cMaterial);
+            scene.add(canopyPoints);
         }
 
         function createPetals() {
@@ -356,26 +345,24 @@
             const colors = new Float32Array(PETAL_PARTICLES * 3);
             const sizes = new Float32Array(PETAL_PARTICLES);
             const opacities = new Float32Array(PETAL_PARTICLES);
-            
-            // Custom velocities for petals
             const velocities = new Float32Array(PETAL_PARTICLES * 3);
 
             for (let i = 0; i < PETAL_PARTICLES; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 600;
-                positions[i * 3 + 1] = Math.random() * 400;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 600;
+                positions[i * 3] = (Math.random() - 0.5) * 800;
+                positions[i * 3 + 1] = Math.random() * 600;
+                positions[i * 3 + 2] = (Math.random() - 0.5) * 800;
 
-                const color = Math.random() > 0.5 ? COLORS.hotPink : COLORS.gold;
+                const color = Math.random() > 0.3 ? COLORS.softPink : COLORS.gold;
                 colors[i * 3] = color.r;
                 colors[i * 3 + 1] = color.g;
                 colors[i * 3 + 2] = color.b;
 
-                sizes[i] = 4.0 + Math.random() * 6.0;
-                opacities[i] = 0.6 + Math.random() * 0.4;
+                sizes[i] = 3.0 + Math.random() * 5.0;
+                opacities[i] = 0.4 + Math.random() * 0.6;
 
-                velocities[i * 3] = (Math.random() - 0.5) * 0.5;
-                velocities[i * 3 + 1] = -0.5 - Math.random() * 1.0;
-                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.5;
+                velocities[i * 3] = (Math.random() - 0.5) * 0.8;
+                velocities[i * 3 + 1] = -0.4 - Math.random() * 0.8;
+                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.8;
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -388,8 +375,8 @@
                 vertexShader: particleVertexShader,
                 fragmentShader: particleFragmentShader,
                 blending: THREE.AdditiveBlending,
-                depthTest: false,
-                transparent: true
+                transparent: true,
+                depthWrite: false
             });
 
             petalPoints = new THREE.Points(geometry, material);
@@ -410,16 +397,13 @@
 
             controls.update();
 
-            // Animate Canopy (subtle breathing/wind)
+            // Sway canopy and trunk slightly
             if (canopyPoints) {
-                const positions = canopyPoints.geometry.attributes.position.array;
-                for (let i = 0; i < CANOPY_PARTICLES; i++) {
-                    const idx = i * 3;
-                    // Gentle sway
-                    positions[idx] += Math.sin(elapsed * 0.5 + positions[idx+1] * 0.01) * 0.05;
-                    positions[idx+2] += Math.cos(elapsed * 0.5 + positions[idx+1] * 0.01) * 0.05;
-                }
-                canopyPoints.geometry.attributes.position.needsUpdate = true;
+                canopyPoints.rotation.y = Math.sin(elapsed * 0.2) * 0.05;
+                canopyPoints.position.x = Math.sin(elapsed * 0.5) * 2;
+            }
+            if (trunkPoints) {
+                trunkPoints.rotation.y = Math.sin(elapsed * 0.2) * 0.05;
             }
 
             // Animate Petals
@@ -428,15 +412,14 @@
                 const vel = petalPoints.geometry.userData.velocities;
                 for (let i = 0; i < PETAL_PARTICLES; i++) {
                     const idx = i * 3;
-                    pos[idx] += vel[idx] + Math.sin(elapsed + i) * 0.2;
-                    pos[idx+1] += vel[idx+1];
-                    pos[idx+2] += vel[idx+2] + Math.cos(elapsed + i) * 0.2;
+                    pos[idx] += vel[idx] + Math.sin(elapsed * 0.5 + i) * 0.1;
+                    pos[idx + 1] += vel[idx + 1];
+                    pos[idx + 2] += vel[idx + 2] + Math.cos(elapsed * 0.5 + i) * 0.1;
 
-                    // Reset petals that fall below ground
-                    if (pos[idx+1] < -50) {
-                        pos[idx] = (Math.random() - 0.5) * 400;
-                        pos[idx+1] = 300 + Math.random() * 100;
-                        pos[idx+2] = (Math.random() - 0.5) * 400;
+                    if (pos[idx + 1] < -50) {
+                        pos[idx] = (Math.random() - 0.5) * 800;
+                        pos[idx + 1] = 500 + Math.random() * 100;
+                        pos[idx + 2] = (Math.random() - 0.5) * 800;
                     }
                 }
                 petalPoints.geometry.attributes.position.needsUpdate = true;
