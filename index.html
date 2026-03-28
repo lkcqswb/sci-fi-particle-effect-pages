@@ -3,11 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sci-Fi Sakura - Eternal Bloom</title>
+    <title>Sci-Fi Sakura - Structural Bloom</title>
     <style>
         body {
             margin: 0;
-            background-color: #030003;
+            background-color: #050005;
             overflow: hidden;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
@@ -19,24 +19,26 @@
             position: absolute;
             top: 20px;
             left: 20px;
-            color: rgba(255, 182, 193, 0.6);
+            color: rgba(255, 182, 193, 0.8);
             pointer-events: none;
             text-transform: uppercase;
             letter-spacing: 2px;
             font-size: 11px;
             text-shadow: 0 0 5px rgba(255, 105, 180, 0.5);
+            background: rgba(0,0,0,0.3);
+            padding: 10px;
+            border-left: 2px solid #ff69b4;
         }
     </style>
 </head>
 <body>
     <div id="canvas-container"></div>
     <div class="ui-overlay">
-        System: Sakura Particle Engine v3.0<br>
-        Status: Natural Drift Active<br>
-        Particles: ~550,000
+        System: Sakura Particle Engine v4.0<br>
+        Status: Structural Optimization Active<br>
+        Particles: ~45,000
     </div>
 
-    <!-- Import Three.js and components via CDN -->
     <script type="importmap">
         {
             "imports": {
@@ -54,20 +56,22 @@
         import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 
         // --- Configuration ---
-        const CANOPY_PARTICLES = 450000;
-        const PETAL_PARTICLES = 12000;
-        const TRUNK_PARTICLES = 100000;
+        // Total particles: ~45,000 (Targeting 3-5万)
+        const MAX_TRUNK_POINTS = 10000;
+        const MAX_CANOPY_POINTS = 30000;
+        const MAX_PETAL_POINTS = 5000;
         
         const COLORS = {
             deepPink: new THREE.Color(0xff1493),
             hotPink: new THREE.Color(0xff69b4),
             softPink: new THREE.Color(0xffb6c1),
-            white: new THREE.Color(0xfff0f5),
-            trunkDark: new THREE.Color(0x2a0a1a)
+            white: new THREE.Color(0xffffff),
+            trunkDark: new THREE.Color(0x1a0510),
+            trunkMid: new THREE.Color(0x4a1a30)
         };
 
         // --- Shaders ---
-        const particleVertexShader = `
+        const vertexShader = `
             attribute float size;
             attribute vec3 customColor;
             attribute float opacity;
@@ -81,159 +85,143 @@
                 vOpacity = opacity;
                 vRotation = rotation;
                 vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = size * (400.0 / -mvPosition.z);
+                gl_PointSize = size * (300.0 / -mvPosition.z);
                 gl_Position = projectionMatrix * mvPosition;
             }
         `;
 
-        const particleFragmentShader = `
+        const fragmentShader = `
             varying vec3 vColor;
             varying float vOpacity;
             varying float vRotation;
             
             void main() {
                 vec2 uv = gl_PointCoord - vec2(0.5);
+                float r = length(uv);
+                if (r > 0.5) discard;
                 
-                // Rotation for petals
+                // Rotation
                 float s = sin(vRotation);
                 float c = cos(vRotation);
                 vec2 rotatedUv = vec2(uv.x * c - uv.y * s, uv.x * s + uv.y * c);
                 
-                // Procedural Petal Shape (teardrop/heart-ish)
-                float r = length(rotatedUv);
+                // Petal/Soft shape
+                float dist = length(rotatedUv);
                 float angle = atan(rotatedUv.x, rotatedUv.y);
+                float shape = dist * (1.0 + 0.2 * sin(angle * 2.0));
                 
-                // Distort distance based on angle to create petal lobes
-                float petalShape = r * (1.0 + 0.3 * abs(sin(angle * 1.5)));
-                
-                if (petalShape > 0.45) discard;
-                
-                // Softer falloff
-                float strength = 1.0 - smoothstep(0.0, 0.45, petalShape);
-                strength = pow(strength, 1.5);
-                
-                gl_FragColor = vec4(vColor, vOpacity * strength);
+                float alpha = (1.0 - smoothstep(0.0, 0.5, shape)) * vOpacity;
+                gl_FragColor = vec4(vColor, alpha);
             }
         `;
 
-        // --- Initialization ---
-        let scene, camera, renderer, composer, controls;
-        let canopyPoints, petalPoints, trunkPoints;
-        const clock = new THREE.Clock();
+        // --- Core Variables ---
+        let scene, camera, renderer, composer, controls, clock;
+        let trunk, canopy, petals;
 
         init();
         animate();
 
         function init() {
             scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050005);
-            scene.fog = new THREE.FogExp2(0x050005, 0.001);
+            scene.background = new THREE.Color(0x020002);
+            scene.fog = new THREE.FogExp2(0x020002, 0.0015);
 
-            camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 1, 5000);
-            camera.position.set(0, 300, 700);
+            camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 1, 3000);
+            camera.position.set(0, 400, 800);
 
-            renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: "high-performance" });
+            renderer = new THREE.WebGLRenderer({ antialias: true });
             renderer.setPixelRatio(window.devicePixelRatio);
             renderer.setSize(window.innerWidth, window.innerHeight);
-            renderer.toneMapping = THREE.ACESFilmicToneMapping;
-            renderer.toneMappingExposure = 1.0;
+            renderer.toneMapping = THREE.ReinhardToneMapping;
+            renderer.toneMappingExposure = 1.2;
             document.getElementById('canvas-container').appendChild(renderer.domElement);
 
-            // Controls
             controls = new OrbitControls(camera, renderer.domElement);
             controls.enableDamping = true;
-            controls.dampingFactor = 0.05;
             controls.autoRotate = true;
-            controls.autoRotateSpeed = 0.15;
-            controls.maxDistance = 1500;
-            controls.minDistance = 200;
+            controls.autoRotateSpeed = 0.5;
             controls.target.set(0, 250, 0);
 
-            // --- Post Processing (Refined Bloom) ---
+            // Bloom - Keep it low to avoid "lightbulb" effect
             const renderScene = new RenderPass(scene, camera);
             const bloomPass = new UnrealBloomPass(
-                new THREE.Vector2(window.innerWidth, window.innerHeight), 
-                1.2, // Moderate strength, no more lightbulb
-                0.4, // radius
-                0.2  // higher threshold to see center details
+                new THREE.Vector2(window.innerWidth, window.innerHeight),
+                0.6,  // strength (Lowered)
+                0.3,  // radius
+                0.1   // threshold
             );
-            
             composer = new EffectComposer(renderer);
             composer.addPass(renderScene);
             composer.addPass(bloomPass);
 
-            createTree();
-            createPetals();
+            clock = new THREE.Clock();
 
-            // Subtle ambient lighting
-            const ambientLight = new THREE.AmbientLight(0xff69b4, 0.2);
-            scene.add(ambientLight);
+            generateTree();
+            generateFallingPetals();
 
             window.addEventListener('resize', onWindowResize);
         }
 
-        function createTree() {
-            const tPos = []; const tCol = []; const tSize = []; const tOpac = []; const tRot = [];
-            const cPos = []; const cCol = []; const cSize = []; const cOpac = []; const cRot = [];
+        function generateTree() {
+            const trunkPos = [], trunkCol = [], trunkSize = [], trunkOpac = [], trunkRot = [];
+            const canopyPos = [], canopyCol = [], canopySize = [], canopyOpac = [], canopyRot = [];
+
             const tempColor = new THREE.Color();
 
-            function addParticlesAlongBranch(start, end, startRad, endRad, isTip) {
+            function addBranchParticles(start, end, radiusStart, radiusEnd, isLeafy) {
                 const diff = new THREE.Vector3().subVectors(end, start);
                 const len = diff.length();
-                const iterations = Math.max(10, Math.floor(len * (isTip ? 120 : 60)));
+                
+                // Density control: Few particles for structure
+                const count = Math.floor(len * (isLeafy ? 5 : 15)); 
                 
                 const norm = diff.clone().normalize();
-                const pVec = Math.abs(norm.y) < 0.9 ? new THREE.Vector3(0, 1, 0) : new THREE.Vector3(1, 0, 0);
-                const tangent = new THREE.Vector3().crossVectors(norm, pVec).normalize();
+                const ortho1 = (Math.abs(norm.y) > 0.9) ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+                const tangent = new THREE.Vector3().crossVectors(norm, ortho1).normalize();
                 const bitangent = new THREE.Vector3().crossVectors(norm, tangent).normalize();
 
-                for (let i = 0; i < iterations; i++) {
+                for (let i = 0; i < count; i++) {
                     const t = Math.random();
-                    const r = Math.sqrt(Math.random()) * (startRad + (endRad - startRad) * t);
+                    const r = Math.sqrt(Math.random()) * (radiusStart * (1 - t) + radiusEnd * t);
                     const angle = Math.random() * Math.PI * 2;
                     
-                    const p = new THREE.Vector3()
-                        .copy(start)
+                    const p = new THREE.Vector3().copy(start)
                         .addScaledVector(diff, t)
                         .addScaledVector(tangent, Math.cos(angle) * r)
                         .addScaledVector(bitangent, Math.sin(angle) * r);
 
-                    tPos.push(p.x, p.y, p.z);
-
-                    const heightFactor = THREE.MathUtils.clamp((p.y + 50) / 450, 0, 1);
+                    trunkPos.push(p.x, p.y, p.z);
                     
-                    // Trunk colors: Darker at bottom, transitioning to soft pink tips
-                    if (heightFactor < 0.4) {
-                        tempColor.copy(COLORS.trunkDark).lerp(COLORS.deepPink, heightFactor / 0.4);
-                    } else {
-                        tempColor.copy(COLORS.deepPink).lerp(COLORS.softPink, (heightFactor - 0.4) / 0.6);
-                    }
+                    // Trunk Color Transition
+                    const h = p.y / 500;
+                    tempColor.copy(COLORS.trunkDark).lerp(COLORS.trunkMid, Math.min(h * 2, 1.0));
+                    trunkCol.push(tempColor.r, tempColor.g, tempColor.b);
+                    trunkSize.push(radiusStart * 0.8 + Math.random() * 2);
+                    trunkOpac.push(0.6 + Math.random() * 0.4);
+                    trunkRot.push(Math.random() * Math.PI);
 
-                    tCol.push(tempColor.r, tempColor.g, tempColor.b);
-                    tSize.push(isTip ? (2.0 + Math.random() * 2) : (3.0 + Math.random() * 5));
-                    tOpac.push(0.4 + Math.random() * 0.4);
-                    tRot.push(Math.random() * Math.PI * 2);
-
-                    if (isTip || (heightFactor > 0.3 && Math.random() > 0.85)) {
-                        const cloudCount = isTip ? 18 : 3;
+                    // If leafy part, add canopy clouds
+                    if (isLeafy && Math.random() > 0.3) {
+                        const cloudCount = 8;
                         for(let j=0; j<cloudCount; j++) {
                             const offset = new THREE.Vector3(
                                 (Math.random() - 0.5) * 60,
-                                (Math.random() - 0.5) * 45,
+                                (Math.random() - 0.5) * 50,
                                 (Math.random() - 0.5) * 60
                             );
                             const cp = p.clone().add(offset);
-                            cPos.push(cp.x, cp.y, cp.z);
+                            canopyPos.push(cp.x, cp.y, cp.z);
                             
-                            const cRand = Math.random();
-                            if (cRand > 0.85) tempColor.copy(COLORS.white);
-                            else if (cRand > 0.4) tempColor.copy(COLORS.softPink);
+                            const rand = Math.random();
+                            if (rand > 0.8) tempColor.copy(COLORS.white);
+                            else if (rand > 0.4) tempColor.copy(COLORS.softPink);
                             else tempColor.copy(COLORS.hotPink);
 
-                            cCol.push(tempColor.r, tempColor.g, tempColor.b);
-                            cSize.push(2.5 + Math.random() * 7.0);
-                            cOpac.push(0.15 + Math.random() * 0.35);
-                            cRot.push(Math.random() * Math.PI * 2);
+                            canopyCol.push(tempColor.r, tempColor.g, tempColor.b);
+                            canopySize.push(3 + Math.random() * 8);
+                            canopyOpac.push(0.1 + Math.random() * 0.2); // Low opacity for transparency
+                            canopyRot.push(Math.random() * Math.PI);
                         }
                     }
                 }
@@ -241,105 +229,91 @@
 
             function grow(start, dir, length, radius, depth) {
                 const end = new THREE.Vector3().copy(start).addScaledVector(dir, length);
-                const isTip = depth <= 1;
-                addParticlesAlongBranch(start, end, radius, radius * 0.65, isTip);
+                const isLeafy = depth < 3;
+                
+                addBranchParticles(start, end, radius, radius * 0.7, isLeafy);
+
                 if (depth <= 0) return;
-                const branches = depth > 4 ? 1 : (depth > 2 ? 3 : 2); 
-                for (let i = 0; i < branches; i++) {
+
+                const numBranches = depth > 4 ? 1 : (depth === 4 ? 2 : 3);
+                
+                for (let i = 0; i < numBranches; i++) {
                     const newDir = dir.clone();
-                    if (depth > 4) {
-                        newDir.x += (Math.random() - 0.5) * 0.15;
-                        newDir.z += (Math.random() - 0.5) * 0.15;
-                    } else {
-                        const spread = (6 - depth) * 0.4;
-                        newDir.x += (Math.random() - 0.5) * spread;
-                        newDir.y += (Math.random() * 0.25);
-                        newDir.z += (Math.random() - 0.5) * spread;
-                    }
+                    
+                    // Umbrella shape: force branches outwards and upwards
+                    const spread = (6 - depth) * 0.5;
+                    newDir.x += (Math.random() - 0.5) * spread;
+                    newDir.z += (Math.random() - 0.5) * spread;
+                    newDir.y += (Math.random() * 0.3); // Encourage upward/outward
+                    
                     newDir.normalize();
-                    grow(end, newDir, length * (0.76 + Math.random() * 0.12), radius * 0.65, depth - 1);
+                    
+                    const newLen = length * (0.7 + Math.random() * 0.2);
+                    const newRad = radius * 0.65;
+                    
+                    grow(end, newDir, newLen, newRad, depth - 1);
                 }
             }
 
-            grow(new THREE.Vector3(0, -60, 0), new THREE.Vector3(0, 1, 0), 180, 28, 6);
+            // Start growth
+            grow(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 1, 0), 160, 20, 6);
 
-            const tGeometry = new THREE.BufferGeometry();
-            tGeometry.setAttribute('position', new THREE.Float32BufferAttribute(tPos, 3));
-            tGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(tCol, 3));
-            tGeometry.setAttribute('size', new THREE.Float32BufferAttribute(tSize, 1));
-            tGeometry.setAttribute('opacity', new THREE.Float32BufferAttribute(tOpac, 1));
-            tGeometry.setAttribute('rotation', new THREE.Float32BufferAttribute(tRot, 1));
+            // Trunk Geometry
+            const tGeom = new THREE.BufferGeometry();
+            tGeom.setAttribute('position', new THREE.Float32BufferAttribute(trunkPos, 3));
+            tGeom.setAttribute('customColor', new THREE.Float32BufferAttribute(trunkCol, 3));
+            tGeom.setAttribute('size', new THREE.Float32BufferAttribute(trunkSize, 1));
+            tGeom.setAttribute('opacity', new THREE.Float32BufferAttribute(trunkOpac, 1));
+            tGeom.setAttribute('rotation', new THREE.Float32BufferAttribute(trunkRot, 1));
 
-            trunkPoints = new THREE.Points(tGeometry, new THREE.ShaderMaterial({
-                vertexShader: particleVertexShader,
-                fragmentShader: particleFragmentShader,
-                blending: THREE.AdditiveBlending,
-                transparent: true,
-                depthTest: true
+            trunk = new THREE.Points(tGeom, new THREE.ShaderMaterial({
+                vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
             }));
-            scene.add(trunkPoints);
+            scene.add(trunk);
 
-            const cGeometry = new THREE.BufferGeometry();
-            cGeometry.setAttribute('position', new THREE.Float32BufferAttribute(cPos, 3));
-            cGeometry.setAttribute('customColor', new THREE.Float32BufferAttribute(cCol, 3));
-            cGeometry.setAttribute('size', new THREE.Float32BufferAttribute(cSize, 1));
-            cGeometry.setAttribute('opacity', new THREE.Float32BufferAttribute(cOpac, 1));
-            cGeometry.setAttribute('rotation', new THREE.Float32BufferAttribute(cRot, 1));
+            // Canopy Geometry
+            const cGeom = new THREE.BufferGeometry();
+            cGeom.setAttribute('position', new THREE.Float32BufferAttribute(canopyPos, 3));
+            cGeom.setAttribute('customColor', new THREE.Float32BufferAttribute(canopyCol, 3));
+            cGeom.setAttribute('size', new THREE.Float32BufferAttribute(canopySize, 1));
+            cGeom.setAttribute('opacity', new THREE.Float32BufferAttribute(canopyOpac, 1));
+            cGeom.setAttribute('rotation', new THREE.Float32BufferAttribute(canopyRot, 1));
 
-            canopyPoints = new THREE.Points(cGeometry, new THREE.ShaderMaterial({
-                vertexShader: particleVertexShader,
-                fragmentShader: particleFragmentShader,
-                blending: THREE.AdditiveBlending,
-                transparent: true,
-                depthWrite: false
+            canopy = new THREE.Points(cGeom, new THREE.ShaderMaterial({
+                vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
             }));
-            scene.add(canopyPoints);
+            scene.add(canopy);
         }
 
-        function createPetals() {
-            const geometry = new THREE.BufferGeometry();
-            const positions = new Float32Array(PETAL_PARTICLES * 3);
-            const colors = new Float32Array(PETAL_PARTICLES * 3);
-            const sizes = new Float32Array(PETAL_PARTICLES);
-            const opacities = new Float32Array(PETAL_PARTICLES);
-            const rotations = new Float32Array(PETAL_PARTICLES);
-            const velocities = new Float32Array(PETAL_PARTICLES * 3);
+        function generateFallingPetals() {
+            const pos = [], col = [], size = [], opac = [], rot = [], vel = [];
 
-            for (let i = 0; i < PETAL_PARTICLES; i++) {
-                positions[i * 3] = (Math.random() - 0.5) * 1000;
-                positions[i * 3 + 1] = Math.random() * 800;
-                positions[i * 3 + 2] = (Math.random() - 0.5) * 1000;
-
+            for (let i = 0; i < MAX_PETAL_POINTS; i++) {
+                pos.push((Math.random() - 0.5) * 1200, Math.random() * 1000, (Math.random() - 0.5) * 1200);
+                
                 const rand = Math.random();
-                const color = rand > 0.7 ? COLORS.white : (rand > 0.3 ? COLORS.softPink : COLORS.hotPink);
-                colors[i * 3] = color.r;
-                colors[i * 3 + 1] = color.g;
-                colors[i * 3 + 2] = color.b;
-
-                sizes[i] = 4.0 + Math.random() * 6.0;
-                opacities[i] = 0.5 + Math.random() * 0.5;
-                rotations[i] = Math.random() * Math.PI * 2;
-
-                velocities[i * 3] = (Math.random() - 0.5) * 1.0; // Wind X
-                velocities[i * 3 + 1] = -0.5 - Math.random() * 1.5; // Gravity
-                velocities[i * 3 + 2] = (Math.random() - 0.5) * 1.0; // Wind Z
+                const color = rand > 0.8 ? COLORS.white : (rand > 0.4 ? COLORS.softPink : COLORS.hotPink);
+                col.push(color.r, color.g, color.b);
+                
+                size.push(4 + Math.random() * 6);
+                opac.push(0.4 + Math.random() * 0.4);
+                rot.push(Math.random() * Math.PI * 2);
+                
+                vel.push((Math.random() - 0.5) * 1.5, -1.0 - Math.random() * 1.5, (Math.random() - 0.5) * 1.5);
             }
 
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            geometry.setAttribute('customColor', new THREE.BufferAttribute(colors, 3));
-            geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1));
-            geometry.setAttribute('opacity', new THREE.BufferAttribute(opacities, 1));
-            geometry.setAttribute('rotation', new THREE.BufferAttribute(rotations, 1));
-            geometry.userData.velocities = velocities;
+            const geom = new THREE.BufferGeometry();
+            geom.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+            geom.setAttribute('customColor', new THREE.Float32BufferAttribute(col, 3));
+            geom.setAttribute('size', new THREE.Float32BufferAttribute(size, 1));
+            geom.setAttribute('opacity', new THREE.Float32BufferAttribute(opac, 1));
+            geom.setAttribute('rotation', new THREE.Float32BufferAttribute(rot, 1));
+            geom.userData = { velocities: vel };
 
-            petalPoints = new THREE.Points(geometry, new THREE.ShaderMaterial({
-                vertexShader: particleVertexShader,
-                fragmentShader: particleFragmentShader,
-                blending: THREE.AdditiveBlending,
-                transparent: true,
-                depthWrite: false
+            petals = new THREE.Points(geom, new THREE.ShaderMaterial({
+                vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
             }));
-            scene.add(petalPoints);
+            scene.add(petals);
         }
 
         function onWindowResize() {
@@ -356,45 +330,32 @@
 
             controls.update();
 
-            // Sway tree naturally
-            const swayX = Math.sin(elapsed * 0.4) * 5;
-            const swayZ = Math.cos(elapsed * 0.3) * 5;
-            if (canopyPoints) {
-                canopyPoints.position.x = swayX;
-                canopyPoints.position.z = swayZ;
-                canopyPoints.rotation.y = Math.sin(elapsed * 0.1) * 0.02;
-            }
-            if (trunkPoints) {
-                trunkPoints.position.x = swayX;
-                trunkPoints.position.z = swayZ;
-                trunkPoints.rotation.y = Math.sin(elapsed * 0.1) * 0.02;
-            }
+            // Subtle sway
+            const sway = Math.sin(elapsed * 0.5) * 5;
+            if (trunk) trunk.position.x = sway;
+            if (canopy) canopy.position.x = sway;
 
-            // Animate Petals with floaty falling motion
-            if (petalPoints) {
-                const pos = petalPoints.geometry.attributes.position.array;
-                const rot = petalPoints.geometry.attributes.rotation.array;
-                const vel = petalPoints.geometry.userData.velocities;
-                for (let i = 0; i < PETAL_PARTICLES; i++) {
-                    const idx = i * 3;
+            // Falling petals logic
+            if (petals) {
+                const pAttr = petals.geometry.attributes.position;
+                const rAttr = petals.geometry.attributes.rotation;
+                const v = petals.geometry.userData.velocities;
+                
+                for (let i = 0; i < MAX_PETAL_POINTS; i++) {
+                    pAttr.array[i * 3] += v[i * 3] + Math.sin(elapsed + i) * 0.3;
+                    pAttr.array[i * 3 + 1] += v[i * 3 + 1];
+                    pAttr.array[i * 3 + 2] += v[i * 3 + 2] + Math.cos(elapsed + i) * 0.3;
                     
-                    // Wind + Gravity
-                    pos[idx] += vel[idx] + Math.sin(elapsed * 0.8 + i) * 0.5;
-                    pos[idx + 1] += vel[idx + 1];
-                    pos[idx + 2] += vel[idx + 2] + Math.cos(elapsed * 0.6 + i) * 0.5;
-                    
-                    // Tumble rotation
-                    rot[i] += 0.02 + Math.random() * 0.03;
+                    rAttr.array[i] += 0.05;
 
-                    // Reset if out of bounds
-                    if (pos[idx + 1] < -100) {
-                        pos[idx] = (Math.random() - 0.5) * 1200;
-                        pos[idx + 1] = 800 + Math.random() * 200;
-                        pos[idx + 2] = (Math.random() - 0.5) * 1200;
+                    if (pAttr.array[i * 3 + 1] < -100) {
+                        pAttr.array[i * 3 + 1] = 900;
+                        pAttr.array[i * 3] = (Math.random() - 0.5) * 1200;
+                        pAttr.array[i * 3 + 2] = (Math.random() - 0.5) * 1200;
                     }
                 }
-                petalPoints.geometry.attributes.position.needsUpdate = true;
-                petalPoints.geometry.attributes.rotation.needsUpdate = true;
+                pAttr.needsUpdate = true;
+                rAttr.needsUpdate = true;
             }
 
             composer.render();
