@@ -190,7 +190,10 @@
                         
                         colors.push(tempColor.r, tempColor.g, tempColor.b);
                         sizes.push(2.0 + Math.random() * 6.0);
-                        opacities.push(0.4 + Math.random() * 0.5);
+                        
+                        let clusterOpacity = 0.4 + Math.random() * 0.5;
+                        if (depth > 2) clusterOpacity *= 0.5;
+                        opacities.push(clusterOpacity);
                     }
                 }
 
