@@ -157,8 +157,9 @@
 
                 // Lush Blossom Clusters
                 if (depth < 5) {
-                    // More blooms as depth decreases (smaller branches)
-                    const bloomDensity = (6 - depth) * 60; 
+                    // Reduced density for inner branches (high depth), full density for tips (low depth)
+                    const densityMultiplier = depth > 2 ? 30 : 60;
+                    const bloomDensity = (6 - depth) * densityMultiplier; 
                     const clusterSpread = (6 - depth) * 12;
 
                     for (let i = 0; i < bloomDensity; i++) {
