@@ -1,360 +1,480 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Sci-Fi Sakura - Umbral Structure</title>
-    <link href="https://fonts.googleapis.com/css2?family=Sawarabi+Mincho&display=swap" rel="stylesheet">
-    <style>
-        body { margin: 0; background-color: #050005; overflow: hidden; font-family: sans-serif; }
-        #canvas-container { width: 100vw; height: 100vh; }
-        .ui-overlay {
-            position: absolute; top: 20px; left: 20px; color: rgba(255, 182, 193, 0.8);
-            pointer-events: none; text-transform: uppercase; letter-spacing: 2px; font-size: 11px;
-            border-left: 2px solid #ff69b4; padding-left: 10px; background: rgba(0,0,0,0.4);
-        }
-        .poem-overlay {
-            position: absolute; bottom: 40px; right: 40px;
-            color: rgba(255, 182, 193, 0.45);
-            font-size: 13px; text-align: right;
-            line-height: 2.2; letter-spacing: 4px;
-            writing-mode: vertical-rl;
-            text-shadow: 0 0 8px rgba(255, 105, 180, 0.15);
-            pointer-events: none;
-            font-family: "Sawarabi Mincho", serif;
-        }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Cyber Sakura - Sci-Fi Particle Effect</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#02040a;overflow:hidden;cursor:none;}
+  canvas{display:block;width:100vw;height:100vh;}
+  #ui{position:fixed;bottom:20px;left:20px;color:rgba(80,180,255,0.55);font-family:monospace;font-size:11px;letter-spacing:1.5px;pointer-events:none;line-height:1.8;}
+  #stats{position:fixed;top:16px;right:20px;color:rgba(80,180,255,0.4);font-family:monospace;font-size:10px;letter-spacing:1px;pointer-events:none;text-align:right;line-height:1.8;}
+  #scanlines{position:fixed;top:0;left:0;width:100%;height:100%;pointer-events:none;background:repeating-linear-gradient(0deg,rgba(0,0,0,0.03) 0px,rgba(0,0,0,0.03) 1px,transparent 1px,transparent 2px);z-index:10;}
+</style>
 </head>
 <body>
-    <div id="canvas-container"></div>
-    <div class="ui-overlay">
-        System: Multi-Layer Umbral Engine v6.0<br>
-        Mode: Layered Canopy Optimization<br>
-        Structure: Bio-Digital Recursive (Umbrella)
-    </div>
-    <div class="poem-overlay">
-        桜の花が夜空に舞う<br>
-        闇の中で輝く光の樹
-    </div>
+<div id="ui">SYSTEM.STABLE // CHERRY_CORE_INIT // FLOW_ACTIVE<br><span id="ui-hint">[SPACE] PAUSE &nbsp; [+/-] PARTICLES &nbsp; [G] GRID</span></div>
+<div id="stats"><span id="fps">FPS: --</span><br><span id="pcount">PARTICLES: --</span></div>
+<div id="scanlines"></div>
+<canvas id="c"></canvas>
+<script>
+(function(){
+'use strict';
 
-    <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
-    </script>
+// ═══════════════════════════════════════════════════════
+// CONFIG — 全部可调参数集中于此
+// ═══════════════════════════════════════════════════════
+var CFG = {
+  PARTICLE_COUNT:  4500,
+  BG_ALPHA:         0.16,    // 背景残影强度（越小拖尾越长）
+  MOUSE_RADIUS:     160,     // 鼠标斥力半径
+  MOUSE_BURST_R:    320,     // 点击爆发半径
+  BLOOM_LAYERS:     2,       // bloom 层数（降低开销）
+  BLOOM_ALPHA:      0.08,    // bloom 基础透明度
+  WIND_CHANGE_INT:  0.008,   // 风向随机变化概率
+  WIND_LERP:        0.012,   // 风向插值速度
+  VEL_DAMPING:      0.94,    // 速度阻尼
+  DEPTH_SAMPLE:     12,      // 远景光晕采样间隔（性能开关）
+  SHOW_GRID:        false,   // 默认关闭网格
+  DPR:              Math.min(window.devicePixelRatio || 1, 2), // 限制最大2x
+};
 
-    <script type="module">
-        import * as THREE from 'three';
-        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-        import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-        import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-        import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+// ═══════════════════════════════════════════════════════
+// CANVAS SETUP
+// ═══════════════════════════════════════════════════════
+var cv  = document.getElementById('c');
+var cx  = cv.getContext('2d', {alpha: false});
+var W, H, dpr;
 
-        // --- Configuration ---
-        const COLORS = {
-            trunk: new THREE.Color(0xffffff), // Darker, more organic trunk
-            branch: new THREE.Color(0xeeeeee),
-            bloomDeep: new THREE.Color(0xff1493), // Deep Pink
-            bloomMid: new THREE.Color(0xff69b4),  // Hot Pink
-            bloomLight: new THREE.Color(0xffb6c1), // Light Pink
-            bloomWhite: new THREE.Color(0xffffff)  // White/Buds
-        };
+function resize(){
+  dpr = CFG.DPR;
+  W   = cv.width  = Math.round(window.innerWidth  * dpr);
+  H   = cv.height = Math.round(window.innerHeight * dpr);
+  cv.style.width  = window.innerWidth  + 'px';
+  cv.style.height = window.innerHeight + 'px';
+  // 重建空间网格
+  buildSpatialGrid();
+  rebuildScene();
+}
+window.addEventListener('resize', resize);
 
-        const vertexShader = `
-            attribute float size;
-            attribute vec3 customColor;
-            attribute float opacity;
-            varying vec3 vColor;
-            varying float vOpacity;
-            void main() {
-                vColor = customColor;
-                vOpacity = opacity;
-                vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
-                gl_PointSize = size * (350.0 / -mvPosition.z);
-                gl_Position = projectionMatrix * mvPosition;
-            }
-        `;
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+var N        = CFG.PARTICLE_COUNT;
+var px=[], py=[], vx=[], vy=[];
+var tx=[], ty=[];           // 静止基准坐标
+var cr=[], cg=[], cb=[], sz=[], tp=[], ph=[], spd=[]; // speed multiplier per particle
+var mouse    = {x: -9000, y: -9000};
+var t        = 0;
+var windA    = 0, windS = 1.5, twA = 0, twS = 1.5;
+var paused   = false;
+var showGrid = CFG.SHOW_GRID;
+var lastTime = 0, fps = 0, frameCount = 0, fpsAccum = 0;
+var spatialGrid = {};       // 空间哈希网格
+var GRID_CELL = 80;         // 网格单元格大小
 
-        const fragmentShader = `
-            varying vec3 vColor;
-            varying float vOpacity;
-            void main() {
-                float dist = length(gl_PointCoord - vec2(0.5));
-                if (dist > 0.5) discard;
-                // Soft edge for blossoms
-                float alpha = (0.5 - dist) * 2.0 * vOpacity;
-                gl_FragColor = vec4(vColor, alpha);
-            }
-        `;
+// ═══════════════════════════════════════════════════════
+// SPATIAL HASH GRID — 加速鼠标碰撞 O(n) → O(周边格子)
+// ═══════════════════════════════════════════════════════
+function buildSpatialGrid(){
+  spatialGrid = {};
+}
+function gridKey(gx, gy){ return (gx + 1000) * 10000 + (gy + 1000); }
+function insertGrid(i){
+  var gx = Math.floor(px[i] / GRID_CELL);
+  var gy = Math.floor(py[i] / GRID_CELL);
+  var k  = gridKey(gx, gy);
+  if(!spatialGrid[k]) spatialGrid[k] = [];
+  spatialGrid[k].push(i);
+}
+function queryRadius(x, y, r){
+  var res = [];
+  var gx0 = Math.floor((x - r) / GRID_CELL);
+  var gx1 = Math.floor((x + r) / GRID_CELL);
+  var gy0 = Math.floor((y - r) / GRID_CELL);
+  var gy1 = Math.floor((y + r) / GRID_CELL);
+  for(var gx = gx0; gx <= gx1; gx++){
+    for(var gy = gy0; gy <= gy1; gy++){
+      var k = gridKey(gx, gy);
+      if(spatialGrid[k]) res = res.concat(spatialGrid[k]);
+    }
+  }
+  return res;
+}
 
-        let scene, camera, renderer, composer, clock, controls;
-        let treePoints, petalPoints;
+// ═══════════════════════════════════════════════════════
+// UTILITIES
+// ═══════════════════════════════════════════════════════
+function rnd(a,b){ return a + Math.random() * (b - a); }
+function rndInt(a,b){ return Math.floor(rnd(a, b+1)); }
 
-        init();
-        animate();
+// Sci-fi 配色盘：深空蓝/霓虹粉/电子紫/青白
+var PALETTE = [
+  [60,  130, 255],  // 赛博蓝
+  [255, 100, 200],  // 霓虹粉
+  [150, 180, 255],  // 浅紫蓝
+  [200, 240, 255],  // 青白
+  [80,  200, 180],  // 翠青
+  [255, 200, 100],  // 琥珀金
+];
 
-        function init() {
-            scene = new THREE.Scene();
-            scene.background = new THREE.Color(0x050005);
+function pickColor(i){
+  var c = PALETTE[i % PALETTE.length];
+  return {r: c[0], g: c[1], b: c[2]};
+}
 
-            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 1, 4000);
-            camera.position.set(0, 500, 1200);
+// ═══════════════════════════════════════════════════════
+// PARTICLE INIT
+// ═══════════════════════════════════════════════════════
+function init(){
+  px=[]; py=[]; vx=[]; vy=[]; tx=[]; ty=[];
+  cr=[]; cg=[]; cb=[]; sz=[]; tp=[]; ph=[]; spd=[];
+  for(var i = 0; i < N; i++){
+    px[i]=0; py[i]=0; vx[i]=0; vy[i]=0; tx[i]=0; ty[i]=0;
+    cr[i]=255; cg[i]=255; cb[i]=255; sz[i]=2; tp[i]=0; ph[i]=0; spd[i]=1;
+  }
+}
 
-            renderer = new THREE.WebGLRenderer({ antialias: true });
-            renderer.setPixelRatio(window.devicePixelRatio);
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            document.getElementById('canvas-container').appendChild(renderer.domElement);
+function rebuildScene(){
+  init();
+  var idx = 0;
+  var waterY = H * 0.68;
 
-            controls = new OrbitControls(camera, renderer.domElement);
-            controls.target.set(0, 350, 0);
-            controls.enableDamping = true;
-            controls.autoRotate = true;
-            controls.autoRotateSpeed = 0.3;
+  // ── 1. 水面能量地平线 (10%)
+  var wN = Math.floor(N * 0.10);
+  for(var i = 0; i < wN && idx < N; i++, idx++){
+    px[idx] = rnd(0, W); py[idx] = waterY + rnd(0, H - waterY);
+    tx[idx] = px[idx];   ty[idx] = py[idx];
+    vx[idx] = rnd(-0.15, 0.15); vy[idx] = 0;
+    var c = pickColor(0);
+    cr[idx]=c.r; cg[idx]=c.g; cb[idx]=c.b;
+    sz[idx] = rnd(1.5, 3.5) * dpr; tp[idx]=1; ph[idx]=rnd(0, Math.PI*2); spd[idx]=rnd(0.5,1.5);
+  }
 
-            const bloomPass = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 1.5, 0.4, 0.15);
-            composer = new EffectComposer(renderer);
-            composer.addPass(new RenderPass(scene, camera));
-            composer.addPass(bloomPass);
+  // ── 2. 核心樱花树发光簇 (5个点位 × 12%)
+  var treeSpots = [
+    {x: W*0.10, y: H*0.38, r: H*0.24},
+    {x: W*0.90, y: H*0.38, r: H*0.24},
+    {x: W*0.25, y: H*0.18, r: H*0.14},
+    {x: W*0.75, y: H*0.18, r: H*0.14},
+    {x: W*0.50, y: H*0.09, r: H*0.11},
+  ];
+  for(var ti = 0; ti < treeSpots.length; ti++){
+    var tc   = treeSpots[ti];
+    var perT = Math.floor(N * 0.12);
+    for(var j = 0; j < perT && idx < N; j++, idx++){
+      var a = rnd(0, Math.PI * 2);
+      var d = Math.pow(rnd(0, 1), 1.5) * tc.r;
+      px[idx] = tc.x + Math.cos(a) * d;
+      py[idx] = tc.y + Math.sin(a) * d;
+      tx[idx] = px[idx]; ty[idx] = py[idx];
+      var c = pickColor(rndInt(1, 4));
+      cr[idx]=c.r; cg[idx]=c.g; cb[idx]=c.b;
+      sz[idx] = rnd(1.5, 4.5) * dpr; tp[idx]=2; ph[idx]=rnd(0, Math.PI*2); spd[idx]=rnd(0.8,2.0);
+    }
+  }
 
-            clock = new THREE.Clock();
+  // ── 3. 飘落流光粒子 (余量)
+  var fallN = N - idx;
+  for(var i = 0; i < fallN && idx < N; i++, idx++){
+    px[idx] = rnd(0, W); py[idx] = rnd(-H, H * 0.65);
+    tx[idx] = px[idx] + rnd(-W * 0.3, W * 0.3); ty[idx] = H + 100;
+    vx[idx] = 0; vy[idx] = rnd(0.6, 2.2) * dpr;
+    var c = pickColor(rndInt(0, 5));
+    cr[idx]=c.r; cg[idx]=c.g; cb[idx]=c.b;
+    sz[idx] = rnd(1, 3.5) * dpr; tp[idx]=5; ph[idx]=rnd(0, Math.PI*2); spd[idx]=rnd(0.7,1.8);
+  }
 
-            generateTree();
-            generateFallingPetals();
-            window.addEventListener('resize', onWindowResize);
-        }
+  // 重建空间网格
+  buildSpatialGrid();
+  for(var i = 0; i < N; i++) insertGrid(i);
+}
 
-        function generateTree() {
-            const positions = [], colors = [], sizes = [], opacities = [];
-            const tempColor = new THREE.Color();
+// ═══════════════════════════════════════════════════════
+// BLOOM HELPER (简化版，单层径向)
+// ═══════════════════════════════════════════════════════
+function bloom(x, y, s, r, g, b, alpha, layers){
+  layers = layers || 1;
+  for(var l = 0; l < layers; l++){
+    var radius = s * (1 + l * 3.5);
+    var a      = alpha / (l + 1);
+    var gr     = cx.createRadialGradient(x, y, 0, x, y, radius);
+    gr.addColorStop(0,   'rgba('+r+','+g+','+b+','+a.toFixed(3)+')');
+    gr.addColorStop(1,   'rgba('+r+','+g+','+b+',0)');
+    cx.fillStyle = gr;
+    cx.beginPath();
+    cx.arc(x * dpr, y * dpr, radius * dpr, 0, Math.PI * 2);
+    cx.fill();
+  }
+}
 
-            // --- 1. Branch & Blossom Generation Logic ---
-            function createBranch(start, dir, length, radius, depth) {
-                const actualLength = length * (0.8 + Math.random() * 0.4);
-                const end = start.clone().add(dir.clone().multiplyScalar(actualLength));
-                
-                // Draw Branch Particles
-                const segmentCount = Math.max(3, Math.floor(actualLength / 5));
-                for (let i = 0; i <= segmentCount; i++) {
-                    const t = i / segmentCount;
-                    const p = start.clone().lerp(end, t);
-                    const currentRad = radius * (1 - t * 0.5);
-                    
-                    // Organic jitter for branch path
-                    const jitter = currentRad * 0.3;
-                    p.x += (Math.random() - 0.5) * jitter;
-                    p.y += (Math.random() - 0.5) * jitter;
-                    p.z += (Math.random() - 0.5) * jitter;
+// ═══════════════════════════════════════════════════════
+// DRAW — 渲染层
+// ═══════════════════════════════════════════════════════
+function draw(){
+  // ① 半透明背景残影
+  cx.globalCompositeOperation = 'source-over';
+  var bg = cx.createLinearGradient(0, 0, 0, H * dpr);
+  bg.addColorStop(0, '#010612');
+  bg.addColorStop(1, '#040920');
+  cx.globalAlpha = CFG.BG_ALPHA;
+  cx.fillStyle   = bg;
+  cx.fillRect(0, 0, W * dpr, H * dpr);
+  cx.globalAlpha = 1.0;
 
-                    positions.push(p.x, p.y, p.z);
-                    tempColor.copy(COLORS.branch).lerp(COLORS.trunk, depth/6);
-                    colors.push(tempColor.r, tempColor.g, tempColor.b);
-                    sizes.push(currentRad * 2.5);
-                    opacities.push(0.8);
-                }
+  // ② 远景星场（静态，一次性按需绘制由背景残影自然保留）
+  // 用 lighter 混合模式叠加远景光晕（稀疏采样省性能）
+  cx.save();
+  cx.globalCompositeOperation = 'lighter';
+  for(var i = 0; i < N; i += CFG.DEPTH_SAMPLE){
+    if(tp[i] === 2 || tp[i] === 5){
+      var pulse = 1 + Math.sin(t * 2 + ph[i]) * 0.3;
+      bloom(px[i], py[i], sz[i] * pulse, cr[i], cg[i], cb[i], CFG.BLOOM_ALPHA, 1);
+    }
+  }
+  cx.restore();
 
-                // Lush Blossom Clusters
-                if (depth < 5) {
-                    // Reduced density for inner branches (high depth), full density for tips (low depth)
-                    const densityMultiplier = depth > 2 ? 30 : 60;
-                    const bloomDensity = (6 - depth) * densityMultiplier; 
-                    const clusterSpread = (6 - depth) * 12;
+  // ③ 水面填色
+  var waterY = H * 0.68;
+  cx.fillStyle = 'rgba(8,16,48,0.55)';
+  cx.fillRect(0, waterY * dpr, W * dpr, (H - waterY) * dpr);
 
-                    for (let i = 0; i < bloomDensity; i++) {
-                        // Create "clumped" distribution using spherical random
-                        const phi = Math.random() * Math.PI * 2;
-                        const theta = Math.acos(Math.random() * 2 - 1);
-                        const r = Math.pow(Math.random(), 0.7) * clusterSpread;
-                        
-                        const bp = end.clone();
-                        bp.x += r * Math.sin(theta) * Math.cos(phi);
-                        bp.y += r * Math.sin(theta) * Math.sin(phi);
-                        bp.z += r * Math.cos(theta);
+  // 水面地平线光带
+  var horizGrd = cx.createLinearGradient(0, (waterY - 10) * dpr, 0, (waterY + 10) * dpr);
+  horizGrd.addColorStop(0, 'rgba(60,130,255,0)');
+  horizGrd.addColorStop(0.5,'rgba(60,130,255,0.25)');
+  horizGrd.addColorStop(1, 'rgba(60,130,255,0)');
+  cx.fillStyle = horizGrd;
+  cx.fillRect(0, (waterY - 10) * dpr, W * dpr, 20 * dpr);
 
-                        // Also add some blooms along the branch length
-                        const lerpT = Math.random();
-                        const branchP = start.clone().lerp(end, lerpT);
-                        const offset = new THREE.Vector3((Math.random()-0.5), (Math.random()-0.5), (Math.random()-0.5)).multiplyScalar(clusterSpread * 0.6);
-                        const finalP = bp.lerp(branchP.add(offset), 0.3);
+  // ④ 粒子核心（lighter 叠加发光）
+  cx.save();
+  cx.globalCompositeOperation = 'lighter';
+  for(var i = 0; i < N; i++){
+    var x = px[i] * dpr, y = py[i] * dpr, s = sz[i], type = tp[i];
+    var pulse = Math.sin(t * 3 * spd[i] + ph[i]);
 
-                        positions.push(finalP.x, finalP.y, finalP.z);
-                        
-                        // Mix colors: White -> Light Pink -> Mid -> Deep
-                        const rand = Math.random();
-                        if (rand > 0.8) tempColor.copy(COLORS.bloomWhite);
-                        else if (rand > 0.4) tempColor.copy(COLORS.bloomLight);
-                        else if (rand > 0.15) tempColor.copy(COLORS.bloomMid);
-                        else tempColor.copy(COLORS.bloomDeep);
-                        
-                        colors.push(tempColor.r, tempColor.g, tempColor.b);
-                        sizes.push(2.0 + Math.random() * 6.0);
-                        
-                        let clusterOpacity = 0.4 + Math.random() * 0.5;
-                        if (depth > 2) clusterOpacity *= 0.5;
-                        opacities.push(clusterOpacity);
-                    }
-                }
+    if(type === 5){
+      // 飘落流光粒子
+      cx.fillStyle = 'rgba('+cr[i]+','+cg[i]+','+cb[i]+',0.75)';
+      cx.beginPath();
+      cx.arc(x, y, s * (1 + pulse * 0.18), 0, Math.PI * 2);
+      cx.fill();
+    } else if(type === 2){
+      // 树丛发光粒子
+      cx.fillStyle = 'rgba('+cr[i]+','+cg[i]+','+cb[i]+',0.55)';
+      cx.beginPath();
+      cx.arc(x, y, s, 0, Math.PI * 2);
+      cx.fill();
+    } else {
+      // 水面能量粒子
+      cx.fillStyle = 'rgba('+cr[i]+','+cg[i]+','+cb[i]+',0.65)';
+      cx.beginPath();
+      cx.arc(x, y, s * (1 + Math.sin(t * 2 + ph[i]) * 0.2), 0, Math.PI * 2);
+      cx.fill();
+    }
+  }
+  cx.restore();
 
-                if (depth <= 0) return;
+  // ⑤ 暗角
+  var vig = cx.createRadialGradient(
+    W*dpr/2, H*dpr/2, W*dpr*0.18,
+    W*dpr/2, H*dpr/2, W*dpr*0.82
+  );
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.72)');
+  cx.globalCompositeOperation = 'source-over';
+  cx.fillStyle = vig;
+  cx.fillRect(0, 0, W * dpr, H * dpr);
 
-                // Recursive branching
-                const numSubBranches = depth > 3 ? 2 : (Math.random() > 0.4 ? 2 : 1);
-                for (let i = 0; i < numSubBranches; i++) {
-                    const nextDir = dir.clone();
-                    const angleY = Math.random() * Math.PI * 2;
-                    const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
-                    const spread = 0.4 + Math.random() * 0.4;
-                    nextDir.applyAxisAngle(axis, spread);
-                    
-                    createBranch(end, nextDir, actualLength * 0.75, radius * 0.65, depth - 1);
-                }
-            }
+  // ⑥ 网格叠加层（可选）
+  if(showGrid){
+    cx.save();
+    cx.globalCompositeOperation = 'source-over';
+    cx.strokeStyle = 'rgba(60,140,255,0.06)';
+    cx.lineWidth   = 1;
+    var gs = 80 * dpr;
+    for(var gx = 0; gx < W * dpr; gx += gs){
+      cx.beginPath(); cx.moveTo(gx, 0); cx.lineTo(gx, H * dpr); cx.stroke();
+    }
+    for(var gy = 0; gy < H * dpr; gy += gs){
+      cx.beginPath(); cx.moveTo(0, gy); cx.lineTo(W * dpr, gy); cx.stroke();
+    }
+    cx.restore();
+  }
 
-            // --- 2. Enhanced Trunk Generation ---
-            const trunkHeight = 560;
-            const trunkBaseRadius = 45;
-            const trunkTopRadius = 8; // Much thinner at the top
-            const trunkSegments = 250;
-            
-            const trunkPath = [];
-            for (let i = 0; i < trunkSegments; i++) {
-                const t = i / trunkSegments;
-                const y = t * trunkHeight;
-                // Add organic sway to the trunk
-                const offsetX = Math.sin(t * 4) * 15 * t;
-                const offsetZ = Math.cos(t * 3) * 12 * t;
-                const p = new THREE.Vector3(offsetX, y, offsetZ);
-                trunkPath.push({p, t});
+  // ⑦ 鼠标光晕与十字准星
+  if(mouse.x > -5000){
+    var mx = mouse.x * dpr, my = mouse.y * dpr;
+    cx.save();
+    cx.globalCompositeOperation = 'lighter';
+    bloom(mouse.x, mouse.y, 22 * dpr, 100, 200, 255, 0.28, 2);
+    cx.restore();
+    cx.save();
+    cx.globalCompositeOperation = 'source-over';
+    cx.strokeStyle = 'rgba(100,200,255,0.85)';
+    cx.lineWidth   = 1.5;
+    cx.beginPath(); cx.arc(mx, my, 16 * dpr, 0, Math.PI * 2); cx.stroke();
+    cx.beginPath(); cx.moveTo(mx - 22 * dpr, my); cx.lineTo(mx + 22 * dpr, my); cx.stroke();
+    cx.beginPath(); cx.moveTo(mx, my - 22 * dpr); cx.lineTo(mx, my + 22 * dpr); cx.stroke();
+    cx.restore();
+  }
+}
 
-                const r = THREE.MathUtils.lerp(trunkBaseRadius, trunkTopRadius, Math.pow(t, 1.2));
-                
-                // Trunk shell
-                const shellDensity = 20;
-                for (let j = 0; j < shellDensity; j++) {
-                    const angle = (j / shellDensity) * Math.PI * 2;
-                    const dist = r * (0.85 + Math.random() * 0.3);
-                    const px = p.x + Math.cos(angle) * dist;
-                    const pz = p.z + Math.sin(angle) * dist;
-                    const py = p.y + (Math.random() - 0.5) * 2;
-                    
-                    positions.push(px, py, pz);
-                    tempColor.copy(COLORS.trunk).lerp(COLORS.branch, t);
-                    colors.push(tempColor.r, tempColor.g, tempColor.b);
-                    sizes.push(5.0 + Math.random() * 8.0);
-                    opacities.push(0.9);
-                }
+// ═══════════════════════════════════════════════════════
+// UPDATE — 物理更新层
+// ═══════════════════════════════════════════════════════
+function update(){
+  t += 0.016;
 
-                // Volume fill
-                if (i % 2 === 0) {
-                    for (let j = 0; j < 8; j++) {
-                        const dist = Math.random() * r;
-                        const angle = Math.random() * Math.PI * 2;
-                        positions.push(p.x + Math.cos(angle) * dist, p.y, p.z + Math.sin(angle) * dist);
-                        colors.push(COLORS.trunk.r, COLORS.trunk.g, COLORS.trunk.b);
-                        sizes.push(4.0 + Math.random() * 4.0);
-                        opacities.push(0.7);
-                    }
-                }
-            }
+  // 风向缓慢变化
+  if(Math.random() < CFG.WIND_CHANGE_INT){
+    twA = rnd(-1, 1);
+    twS = rnd(0.4, 3.0);
+  }
+  windA += (twA - windA) * CFG.WIND_LERP;
+  windS += (twS - windS) * CFG.WIND_LERP;
 
-            // --- 3. Optimized Branching Strategy ---
-            // Start main branches before the very top to avoid explosion
-            const layers = [
-                { h: 0.52, lenMult: 0.08, angleDeg: 100, count: [8, 10], depth: 3 }, // Moved up, short
-                { h: 0.62, lenMult: 0.14, angleDeg: 90, count: [8, 10], depth: 4 },  // Moved up, short-mid
-                { h: 0.55, lenMult: 0.275, angleDeg: 75, count: [10, 12], depth: 5 },
-                { h: 0.70, lenMult: 0.2125, angleDeg: 60, count: [10, 12], depth: 5 },
-                { h: 0.82, lenMult: 0.15, angleDeg: 45, count: [8, 10], depth: 4 },
-                { h: 0.92, lenMult: 0.0875, angleDeg: 30, count: [8, 8], depth: 4 },
-                { h: 0.98, lenMult: 0.0375, angleDeg: 15, count: [6, 6], depth: 3 }
-            ];
+  // 重建空间网格（每帧更新，因为粒子在移动）
+  buildSpatialGrid();
 
-            const degToRad = Math.PI / 180;
-            layers.forEach(layer => {
-                const branchCount = Math.floor(layer.count[0] + Math.random() * (layer.count[1] - layer.count[0] + 1));
-                const trunkIdx = Math.floor(layer.h * (trunkSegments - 1));
-                const {p: startPos} = trunkPath[trunkIdx];
-                
-                for(let i=0; i<branchCount; i++) {
-                    const angleY = (i / branchCount) * Math.PI * 2 + Math.random() * 0.5;
-                    const axis = new THREE.Vector3(Math.cos(angleY), 0, Math.sin(angleY)).normalize();
-                    const angleFromUp = layer.angleDeg * degToRad + (Math.random() - 0.5) * 0.2;
-                    
-                    const dir = new THREE.Vector3(0, 1, 0).applyAxisAngle(axis, angleFromUp);
-                    createBranch(startPos, dir, trunkHeight * layer.lenMult, 15 * layer.lenMult + 2, layer.depth);
-                }
-            });
+  for(var i = 0; i < N; i++){
+    var type = tp[i];
 
-            // Finalize Geometry
-            const geometry = new THREE.BufferGeometry();
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            geometry.setAttribute('customColor', new THREE.Float32BufferAttribute(colors, 3));
-            geometry.setAttribute('size', new THREE.Float32BufferAttribute(sizes, 1));
-            geometry.setAttribute('opacity', new THREE.Float32BufferAttribute(opacities, 1));
+    if(type === 5){
+      // 飘落粒子：重力 + 风向 + 呼吸速度
+      vy[i] += 0.012 * spd[i];
+      vx[i] += Math.sin(t + ph[i]) * 0.04 * spd[i] + windA * 0.08 * windS;
+      px[i] += vx[i];
+      py[i] += vy[i];
+      if(py[i] > H / dpr + 60){
+        py[i] = -60;
+        px[i] = rnd(0, W / dpr);
+        vy[i] = rnd(0.6, 2.2) * spd[i];
+        vx[i] = 0;
+      }
+    } else if(type === 1){
+      // 水面粒子：横向正弦漂移
+      px[i] += Math.sin(t * 0.4 * spd[i] + ph[i]) * 0.22;
+      py[i] += Math.cos(t * 0.3 + ph[i]) * 0.05;
+    } else {
+      // 树丛粒子：基准坐标附近微抖动
+      px[i] = tx[i] + Math.sin(t * 1.1 * spd[i] + ph[i]) * 3.5;
+      py[i] = ty[i] + Math.cos(t * 1.4 * spd[i] + ph[i]) * 3.5;
+    }
 
-            const material = new THREE.ShaderMaterial({
-                vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
-            });
+    vx[i] *= CFG.VEL_DAMPING;
+    vy[i] *= CFG.VEL_DAMPING;
 
-            treePoints = new THREE.Points(geometry, material);
-            scene.add(treePoints);
-        }
+    // 鼠标斥力（使用空间网格加速）
+    if(mouse.x > -5000){
+      var mx = mouse.x, my = mouse.y;
+      var dx = px[i] - mx, dy = py[i] - my;
+      var d2 = dx * dx + dy * dy;
+      var mr = CFG.MOUSE_RADIUS;
+      if(d2 < mr * mr && d2 > 0.01){
+        var d  = Math.sqrt(d2);
+        var f  = (mr - d) * 0.025;
+        vx[i] += dx / d * f * spd[i];
+        vy[i] += dy / d * f * spd[i];
+        px[i] += vx[i];
+        py[i] += vy[i];
+      }
+    }
 
+    insertGrid(i);
+  }
+}
 
-        function generateFallingPetals() {
-            const count = 7000; // Increased count
-            const pos = [], col = [], size = [], opac = [], vel = [];
-            for (let i = 0; i < count; i++) {
-                pos.push((Math.random() - 0.5) * 1800, Math.random() * 1200, (Math.random() - 0.5) * 1800);
-                
-                const rand = Math.random();
-                const c = rand > 0.7 ? COLORS.bloomLight : (rand > 0.3 ? COLORS.bloomMid : COLORS.bloomDeep);
-                
-                col.push(c.r, c.g, c.b);
-                size.push(3 + Math.random() * 4);
-                opac.push(0.4 + Math.random() * 0.4);
-                vel.push((Math.random() - 0.5) * 1.5, -0.8 - Math.random() * 2.0, (Math.random() - 0.5) * 1.5);
-            }
-            const geo = new THREE.BufferGeometry();
-            geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-            geo.setAttribute('customColor', new THREE.Float32BufferAttribute(col, 3));
-            geo.setAttribute('size', new THREE.Float32BufferAttribute(size, 1));
-            geo.setAttribute('opacity', new THREE.Float32BufferAttribute(opac, 1));
-            geo.userData = { velocities: vel };
-            petalPoints = new THREE.Points(geo, new THREE.ShaderMaterial({
-                vertexShader, fragmentShader, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false
-            }));
-            scene.add(petalPoints);
-        }
+// ═══════════════════════════════════════════════════════
+// MAIN LOOP
+// ═══════════════════════════════════════════════════════
+function loop(ts){
+  requestAnimationFrame(loop);
 
-        function onWindowResize() {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-            composer.setSize(window.innerWidth, window.innerHeight);
-        }
+  if(paused) return;
 
-        function animate() {
-            requestAnimationFrame(animate);
-            const elapsed = clock.getElapsedTime();
-            controls.update();
+  // FPS 计算
+  frameCount++;
+  fpsAccum += ts - lastTime;
+  if(fpsAccum >= 500){
+    fps = Math.round(frameCount / (fpsAccum / 1000));
+    document.getElementById('fps').textContent     = 'FPS: ' + fps;
+    document.getElementById('pcount').textContent  = 'PARTICLES: ' + N;
+    frameCount = 0; fpsAccum = 0;
+  }
+  lastTime = ts;
 
-            if (petalPoints) {
-                const positions = petalPoints.geometry.attributes.position.array;
-                const v = petalPoints.geometry.userData.velocities;
-                for (let i = 0; i < positions.length / 3; i++) {
-                    positions[i * 3] += v[i * 3] + Math.sin(elapsed * 0.5 + i) * 0.2;
-                    positions[i * 3 + 1] += v[i * 3 + 1];
-                    positions[i * 3 + 2] += v[i * 3 + 2] + Math.cos(elapsed * 0.5 + i) * 0.2;
-                    if (positions[i * 3 + 1] < 0) positions[i * 3 + 1] = 1000;
-                }
-                petalPoints.geometry.attributes.position.needsUpdate = true;
-            }
+  draw();
+  update();
+}
 
-            composer.render();
-        }
-    </script>
+// ═══════════════════════════════════════════════════════
+// INPUT HANDLERS
+// ═══════════════════════════════════════════════════════
+cv.addEventListener('mousemove', function(e){
+  mouse.x = e.clientX;
+  mouse.y = e.clientY;
+});
+cv.addEventListener('mouseleave', function(){
+  mouse.x = -9000;
+  mouse.y = -9000;
+});
+cv.addEventListener('mousedown', function(e){
+  // 爆发效果（使用空间网格找附近粒子）
+  var bx = e.clientX, by = e.clientY;
+  var nearby = queryRadius(bx, by, CFG.MOUSE_BURST_R);
+  for(var k = 0; k < nearby.length; k++){
+    var i  = nearby[k];
+    var dx = px[i] - bx, dy = py[i] - by;
+    var d2 = dx * dx + dy * dy;
+    var br = CFG.MOUSE_BURST_R;
+    if(d2 < br * br && dpr > 0.01){
+      var d  = Math.sqrt(d2);
+      var f  = (br - d) * 0.12;
+      vx[i] += dx / d * f;
+      vy[i] += dy / d * f;
+    }
+  }
+});
+
+// 键盘控制
+window.addEventListener('keydown', function(e){
+  if(e.code === 'Space'){
+    paused = !paused;
+    e.preventDefault();
+  } else if(e.key === '+' || e.key === '='){
+    N = Math.min(N + 500, 12000);
+    document.getElementById('pcount').textContent = 'PARTICLES: ' + N;
+    rebuildScene();
+  } else if(e.key === '-' || e.key === '_'){
+    N = Math.max(N - 500, 500);
+    document.getElementById('pcount').textContent = 'PARTICLES: ' + N;
+    rebuildScene();
+  } else if(e.key === 'g' || e.key === 'G'){
+    showGrid = !showGrid;
+  }
+});
+
+// 触摸支持
+cv.addEventListener('touchmove', function(e){
+  e.preventDefault();
+  mouse.x = e.touches[0].clientX;
+  mouse.y = e.touches[0].clientY;
+}, {passive: false});
+cv.addEventListener('touchend', function(){
+  mouse.x = -9000; mouse.y = -9000;
+});
+
+// ═══════════════════════════════════════════════════════
+// BOOTSTRAP
+// ═══════════════════════════════════════════════════════
+resize();
+loop(0);
+
+})();
+</script>
 </body>
 </html>
