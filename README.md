@@ -80,4 +80,3 @@
 
 ---
 
-*Generated with ❤️ by甘雨 (Ganyu)*
